@@ -1,0 +1,3 @@
+add_library(dynein_cell_model dynein_cell_model.cpp)
+
+target_include_directories(dynein_cell_model PUBLIC include)
