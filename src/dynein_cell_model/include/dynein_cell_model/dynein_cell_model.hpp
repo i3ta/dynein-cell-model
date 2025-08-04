@@ -13,6 +13,9 @@ namespace dynein_cell_model {
 typedef Eigen::MatrixXd Mat_d;
 typedef Eigen::MatrixXi Mat_i;
 typedef Eigen::SparseMatrix<int> SpMat_i;
+typedef Eigen::VectorXd Vec_d;
+typedef Eigen::ArrayXd Arr_d;
+
 
 class CellModel {
 public:

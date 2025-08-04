@@ -1,6 +1,9 @@
-#include <dynein_cell_model/dynein_cell_model.hpp>
+#include <cmath>
 #include <stdexcept>
 #include <algorithm>
+#include <omp.h>
+
+#include <dynein_cell_model/dynein_cell_model.hpp>
 
 namespace dynein_cell_model {
 CellModel::CellModel() {
@@ -105,5 +108,76 @@ const std::vector<int> CellModel::generate_indices(const int n, const int lb, co
   std::shuffle(arr.begin(), arr.end(), rng);
 
   return std::vector<int>(arr.begin(), arr.begin() + n);
+}
+
+void CellModel::update_adhesion_field() {
+  /**
+    * This function updates the adhesion field based on the positions of the
+    * adhesions. A Gaussian-smoothed adhesion field is first calculated for
+    * each of the adhesion points, and then the points for the rest of the
+    * pixels on the cell are calculated. The field is then normalized using a
+    * hybrid Gaussian-IDW normalization method, which produces a distribution
+    * similar to the original code but runs faster. The values are then again
+    * normalized to be between 0 and 1 and inverted to act as a protrusion
+    * probability.
+    */
+
+  const double ampl = 1 / (2 * M_PI * adh_sigma_);
+  const double eps = 1e-10;
+
+  // Calculate adh_g for adhesion points
+  Mat_d K(adh_num_, adh_num_); // Gaussian kernel matrix
+  Vec_d g_k(adh_num_); // adh_g for adhesions, for Eigen vectorization optimization
+  #pragma omp parallel for
+  for (int k = 0; k < adh_num_; k++) {
+    for (int j = 0; j < adh_num_; j++) {
+      double dr = adh_pos_(0, k) - adh_pos_(0, j);
+      double dc = adh_pos_(1, k) - adh_pos_(1, j);
+      K(k, j) = std::exp(-(dr * dr + dc * dc) / (2 * adh_sigma_));
+    }
+  }
+  g_k = K.rowwise().sum();
+
+  for (int k = 0; k < adh_num_; k++) {
+    adh_g_(adh_pos_(0, k), adh_pos_(1, k)) = g_k(k);
+  }
+
+  // Calculate adh_g and adh_f
+  #pragma omp parallel for collapse(2)
+  for (int i = frame_row_start_; i <= frame_row_end_; i++) {
+    for (int j = frame_col_start_; j <= frame_col_end_; j++) {
+      if (adh_.coeffRef(i, j) == 1) continue;
+
+      // Get distances to adhesions
+      Arr_d dr = adh_pos_.row(0).cast<double>().array() - i;
+      Arr_d dc = adh_pos_.row(1).cast<double>().array() - j;
+      Arr_d dist2 = dr.square() + dc.square();
+
+      // Calculate adh_g
+      Arr_d gaussian = (-dist2 / (2 * adh_sigma_)).exp();
+      double g_val = gaussian.sum();
+      adh_g_(i, j) = ampl * g_val;
+
+      // Normalize using hybrid Gaussian + IDW normalization
+      Arr_d inv = 1.0 / (dist2 + eps);
+      Arr_d gaus_inv = gaussian * inv;
+      adh_f_(i, j) = gaus_inv.sum() / inv.sum();
+    }
+  }
+
+  // Invert for protrusion probability calculation
+  double max_f = adh_f_.block(frame_row_start_, frame_col_start_, 
+                              frame_row_end_ - frame_row_start_ + 1,
+                              frame_col_end_ - frame_col_start_ + 1).maxCoeff();
+  #pragma omp parallel for collapse(2)
+  for (int i = frame_row_start_; i <= frame_row_end_; i++) {
+    for (int j = frame_col_start_; j <= frame_col_end_; j++) {
+      if (adh_.coeffRef(i, j) == 1) {
+        adh_f_(i, j) = 0;
+      } else {
+        adh_f_(i, j) = 1 - (adh_f_(i, j) / max_f);
+      }
+    }
+  }
 }
 } // dynein_cell_model namespace
