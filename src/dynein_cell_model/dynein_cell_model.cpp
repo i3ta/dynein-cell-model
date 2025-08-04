@@ -24,7 +24,6 @@ void CellModel::simulate_steps(int n) {
 void CellModel::step() {
   if (t_ % adh_t_ == 0) {
     rearrange_adhesions();
-    update_k0_adh();
   }
 
   if (t_ % fr_t_ == 0) {
@@ -121,31 +120,15 @@ void CellModel::rearrange_adhesions() {
   update_adhesion_field();
 }
 
-const std::vector<int> CellModel::generate_indices(const int n, const int lb, const int ub) {
-  if (ub - lb < n) {
-    throw std::runtime_error("Bounds must be at least as large as the number of indices to generate.");
-  }
-
-  std::vector<int> arr(ub - lb);
-  for (int i = 0, v = lb; v < ub; i++, v++) {
-    arr[i] = v;
-  }
-
-  std::shuffle(arr.begin(), arr.end(), rng);
-
-  return std::vector<int>(arr.begin(), arr.begin() + n);
-}
-
 void CellModel::update_adhesion_field() {
   /**
     * This function updates the adhesion field based on the positions of the
     * adhesions. A Gaussian-smoothed adhesion field is first calculated for
     * each of the adhesion points, and then the points for the rest of the
-    * pixels on the cell are calculated. The field is then normalized using a
-    * hybrid Gaussian-IDW normalization method, which produces a distribution
-    * similar to the original code but runs faster. The values are then again
-    * normalized to be between 0 and 1 and inverted to act as a protrusion
-    * probability.
+    * pixels on the cell are calculated. The field is then normalized using IDW
+    * normalization method, which produces a distribution similar to the
+    * original code but runs faster. The values are then again normalized to be
+    * between 0 and 1 and inverted to act as a protrusion probability.
     */
 
   const double ampl = 1 / (2 * M_PI * adh_sigma_);
@@ -184,7 +167,7 @@ void CellModel::update_adhesion_field() {
       double g_val = gaussian.sum();
       adh_g_(i, j) = ampl * g_val;
 
-      // Normalize using hybrid Gaussian + IDW normalization
+      // Normalize using IDW normalization
       Arr_d inv = 1.0 / (dist2 + eps);
       Arr_d gaus_inv = gaussian * inv;
       adh_f_(i, j) = gaus_inv.sum() / inv.sum();
@@ -200,10 +183,28 @@ void CellModel::update_adhesion_field() {
     for (int j = frame_col_start_; j <= frame_col_end_; j++) {
       if (adh_.coeffRef(i, j) == 1) {
         adh_f_(i, j) = 0;
+        k0_adh_(i, j) = k0_;
       } else {
         adh_f_(i, j) = 1 - (adh_f_(i, j) / max_f);
+        k0_adh_(i, j) = (k0_ - k0_min_) * k0_scalar_ * (1 - adh_f_(i, j)) + k0_min_;
       }
     }
   }
 }
+
+const std::vector<int> CellModel::generate_indices(const int n, const int lb, const int ub) {
+  if (ub - lb < n) {
+    throw std::runtime_error("Bounds must be at least as large as the number of indices to generate.");
+  }
+
+  std::vector<int> arr(ub - lb);
+  for (int i = 0, v = lb; v < ub; i++, v++) {
+    arr[i] = v;
+  }
+
+  std::shuffle(arr.begin(), arr.end(), rng);
+
+  return std::vector<int>(arr.begin(), arr.begin() + n);
+}
+
 } // dynein_cell_model namespace

@@ -57,6 +57,7 @@ public:
     */
   void save_state(std::string dirname);
 
+private:
   /**
     * @brief Rearrange the adhesion points around the cell to simulate evolution
     * of cell adhesions. Randomly picks adh_frac of the adhesions and finds other
@@ -65,16 +66,10 @@ public:
   void rearrange_adhesions();
 
   /**
-    * @brief Update the values of k_adh for all pixels on the cell.
-    */
-  void update_k0_adh();
-
-  /**
    * @brief Update the cell processing boundaries to be where the cell is.
    */
   void update_frame();
 
-private:
   /**
     * @brief Protrude the nucleus pixels.
     */
@@ -143,7 +138,7 @@ private:
   double DI_; ///< Diffusion coefficient of inactive GTPase
   double k0_; ///< Activation rate of GTPase
   double k0_min_; ///< Minimum basal activation rate of GTPase
-  double scalar_; ///< Effect of adhesion field on GTPase activation
+  double k0_scalar_; ///< Effect of adhesion field on GTPase activation
   double gamma_; ///< Rate constant of autocatalytic activation of GTPase
   double A0_; ///< Sensitivity of positive feedback of GTPase to the concentration of active GTPase
   double s1_; ///< Basal deactivation rate of GTPase
