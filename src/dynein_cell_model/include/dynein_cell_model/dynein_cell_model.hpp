@@ -154,6 +154,10 @@ private:
   double A_min_; ///< minimal value of A
   double AC_max_; ///< maximal value of AC
   double AC_min_; ///< minimal value of AC
+  
+  // Simulation size
+  int sim_rows_; ///< Total number of rows for the simulation
+  int sim_cols_; ///< Total number of columns for the simualation
 
   // Simulation parameters
   int t_; ///< current time step

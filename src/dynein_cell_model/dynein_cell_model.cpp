@@ -120,6 +120,33 @@ void CellModel::rearrange_adhesions() {
   update_adhesion_field();
 }
 
+void CellModel::update_frame() {
+  int min_row = std::numeric_limits<int>::max();
+  int max_row = std::numeric_limits<int>::min();
+  int min_col = std::numeric_limits<int>::max();
+  int max_col = std::numeric_limits<int>::min();
+
+  for (int k = 0; k < cell_.outerSize(); ++k) {
+    for (Eigen::SparseMatrix<int>::InnerIterator it(cell_, k); it; ++it) {
+      int i = it.row();
+      int j = it.col();
+
+      // Update bounding box
+      if (cell_.coeff(i, j) != 0) {
+        min_row = std::min(min_row, i);
+        max_row = std::max(max_row, i);
+        min_col = std::min(min_col, j);
+        max_col = std::max(max_col, j);
+      }
+    }
+  }
+
+  frame_row_start_ = std::max(0, min_row - frame_padding_);
+  frame_row_end_ = std::min(sim_rows_, max_row + frame_padding_);
+  frame_col_start_ = std::max(0, min_col - frame_padding_);
+  frame_col_end_ = std::min(sim_cols_, max_col + frame_padding_);
+}
+
 void CellModel::update_adhesion_field() {
   /**
     * This function updates the adhesion field based on the positions of the
