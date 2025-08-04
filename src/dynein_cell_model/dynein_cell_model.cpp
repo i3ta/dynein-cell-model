@@ -10,15 +10,41 @@ CellModel::CellModel() {
   // Initialize adhesions
 }
 
+void CellModel::simulate(double dt) {
+  const int t_n = dt / dt_; // number of time steps to simulate
+  simulate_steps(t_n);
+}
+
+void CellModel::simulate_steps(int n) {
+  for (int i = 0; i < n; i++) {
+    step();
+  }
+}
+
 void CellModel::step() {
-  this->protrude_nuc();
-  this->retract_nuc();
+  if (t_ % adh_t_ == 0) {
+    rearrange_adhesions();
+    update_k0_adh();
+  }
 
-  this->protrude();
-  this->retract();
+  if (t_ % fr_t_ == 0) {
+    update_frame();
+  }
 
-  this->update_concentrations();
-  this->diffuse_k0_adh();
+  protrude_nuc();
+  retract_nuc();
+
+  protrude();
+  retract();
+
+  update_concentrations();
+  diffuse_k0_adh();
+
+  if (t_ % save_t_ == 0) {
+    save_state(save_dir_);
+  }
+
+  t_++;
 }
 
 void CellModel::rearrange_adhesions() {

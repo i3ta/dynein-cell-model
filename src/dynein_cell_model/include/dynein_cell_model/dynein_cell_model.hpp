@@ -32,6 +32,20 @@ public:
   CellModel(std::string filename);
 
   /**
+   * @brief Simulate the cell for dt amount of time.
+   *
+   * @param dt Length of the simulation to run
+   */
+  void simulate(double dt);
+
+  /**
+   * @brief Simulate the cell for n time steps.
+   *
+   * @param n Number of time steps to simulate
+   */
+  void simulate_steps(int n);
+
+  /**
    * @brief Perform one time step of cell simulations.
    */
   void step();
@@ -141,14 +155,19 @@ private:
   double dx_; ///< Spatial step of finite difference scheme
 
   // Concentration limit parameters
-  double A_max_; // maximal value of A
-  double A_min_; // minimal value of A
-  double AC_max_; // maximal value of AC
-  double AC_min_; // minimal value of AC
+  double A_max_; ///< maximal value of A
+  double A_min_; ///< minimal value of A
+  double AC_max_; ///< maximal value of AC
+  double AC_min_; ///< minimal value of AC
 
   // Simulation parameters
+  int t_; ///< current time step
+  int adh_t_; ///< number of time steps per adhesion rearrangement
+  int fr_t_; ///< number of time steps per frame update
+  int save_t_; ///< number of time steps per save
   int diff_t_; ///< time of diffusion
-  int frame_padding_; //< distance from the cell border to the edge of the frame
+  int frame_padding_; ///< distance from the cell border to the edge of the frame
+  std::string save_dir_; ///< directory to save snapshots to;
 
   // Frame variables
   int frame_row_start_; ///< first row in the frame (inclusive)
