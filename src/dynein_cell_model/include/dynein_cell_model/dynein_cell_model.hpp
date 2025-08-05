@@ -102,6 +102,11 @@ private:
   void diffuse_k0_adh();
 
   /**
+   * @brief Update the forces that dynein is putting on different parts of the cell.
+   */
+  void update_dyn_nuc_field();
+
+  /**
    * @brief Update and smooth the adhesion field
    */
   void update_adhesion_field();
@@ -204,6 +209,7 @@ private:
   Mat_d FC_; ///< values of FC
   Mat_d adh_g_; ///< smoothed adhesion points
   Mat_d adh_f_; ///< field of adhesion influence
+  Mat_d dyn_f_; ///< dynein field force
   
   // random number generation helpers
   std::mt19937 rng;

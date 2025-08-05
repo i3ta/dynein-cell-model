@@ -1,9 +1,12 @@
 #include <cmath>
+#include <deque>
+#include <stack>
 #include <stdexcept>
 #include <algorithm>
 #include <omp.h>
 
 #include <dynein_cell_model/dynein_cell_model.hpp>
+#include <unordered_map>
 
 namespace dynein_cell_model {
 CellModel::CellModel() {
@@ -38,6 +41,7 @@ void CellModel::step() {
 
   update_concentrations();
   diffuse_k0_adh();
+  update_dyn_nuc_field();
 
   if (t_ % save_t_ == 0) {
     save_state(save_dir_);
@@ -145,6 +149,101 @@ void CellModel::update_frame() {
   frame_row_end_ = std::min(sim_rows_, max_row + frame_padding_);
   frame_col_start_ = std::max(0, min_col - frame_padding_);
   frame_col_end_ = std::min(sim_cols_, max_col + frame_padding_);
+}
+
+void CellModel::protrude_nuc() {
+
+}
+
+void CellModel::update_dyn_nuc_field() {
+  /**
+   * This function calculates a field of dynein factor influence from within
+   * the cell by using BFS, then normalizes the values to be in the range (0,
+   * 1) for protrusion/retraction probabilities.
+   *
+   * The logic works by using BFS to create a map of which pixel each other
+   * pixel is propagated from. This produces the best performance and although
+   * doesn't share signals between pixels equidistant to the nucleus, shouldn't
+   * matter because the signals will later be smoothed using a Gaussian kernel
+   * anyway (not done in this function because only a small subset of values
+   * require smoothing).
+   *
+   * Normalization is achieved using a sigmoid function to ensure values are in
+   * the range (0, 1) so that retraction probabilities can be 1 - protrusion
+   * probabilities. The sigmoid is centered at the average so that if all
+   * values are similar, it won't just result in all of the values being high
+   * (close to 1).
+   */
+
+  // helper constants
+  const int DR[4] = {1, -1, 0, 0};
+  const int DC[4] = {0, 0, 1, -1};
+  const double k = 0.2;
+
+  // generate random starting order
+  std::vector<std::pair<int, int>> nuc_coords; // coordinates of the inner pixels of the nucleus outline
+  for (int k = 0; k < inner_outline_nuc_.outerSize(); k++) {
+    for (SpMat_i::InnerIterator it(inner_outline_nuc_, k); it; ++it) {
+      nuc_coords.push_back({it.row(), it.col()});
+    }
+  }
+  std::shuffle(nuc_coords.begin(), nuc_coords.end(), rng); // random visit order
+
+  // perform bfs and keep track of which pixel each pixel originated from,
+  std::deque<std::pair<int, int>> q(nuc_coords.begin(), nuc_coords.end());
+  std::unordered_map<std::pair<int, int>, std::pair<int, int>> from; // which pixel each pixel came from
+  std::stack<std::pair<int, int>> rev; // order to revisit pixels (from out to in)
+  while (!q.empty()) {
+    auto [r, c] = q.front();
+    q.pop_front();
+    rev.push({r, c});
+    for (int i = 0; i < 4; i++) {
+      int nr = r + DR[i];
+      int nc = c + DC[i];
+      std::pair<int, int> next(nr, nc);
+      if (nr < frame_row_start_ || nr > frame_row_end_ ||
+          nc < frame_col_start_ || nc > frame_col_end_ ||
+          cell_.coeffRef(nr, nc) == 0 ||
+          nuc_.coeffRef(nr, nc) == 1 ||
+          from.count(next) > 0)
+        continue;
+      from[next] = {r, c};
+      q.push_back(next); 
+    }
+  }
+
+  // clear previous signals
+  dyn_f_.setZero();
+  
+  // propagate signals towards nucleus
+  double dyn_f_sum = 0;
+  const int n_cell = rev.size(); // number of pixels to propagate (for calculating avg)
+  while (!rev.empty()) {
+    std::pair<int, int> cur = rev.top();
+    rev.pop();
+    auto [r, c] = cur;
+    dyn_f_(r, c) += AC_(r, c); // add signal at that pixel
+    dyn_f_sum += dyn_f_(r, c);
+
+    // propagate to closer pixel
+    if (from.count(cur) > 0) {
+      auto [fr, fc] = from[cur];
+      dyn_f_(fr, fc) += dyn_f_(r, c);
+    }
+  }
+  
+  if (n_cell == 0) return;
+
+  // sigmoid normalization
+  const double dyn_f_avg = dyn_f_sum / n_cell;
+  #pragma omp parallel for collapse(2)
+  for (int i = frame_row_start_; i <= frame_row_end_; i++) {
+    for (int j = frame_col_start_; j <= frame_col_end_; j++) {
+      if (dyn_f_(i, j) == 0) continue;
+      const double diff = dyn_f_(i, j) - dyn_f_avg;
+      dyn_f_(i, j) = 1.0 / (1.0 + std::exp(-k * diff));
+    }
+  }
 }
 
 void CellModel::update_adhesion_field() {
