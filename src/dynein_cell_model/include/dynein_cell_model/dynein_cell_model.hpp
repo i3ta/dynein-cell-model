@@ -107,6 +107,21 @@ private:
   void update_dyn_nuc_field();
 
   /**
+   * @brief Get the dyn_f value at (r, c) smoothed with a Gaussian smoothing kernel.
+   *
+   * @param r row
+   * @param c column
+   *
+   * @return smoothed dyn_f
+   */
+  const double get_smoothed_dyn_f(const int r, const int c);
+
+  /**
+   * @brief Update and save the values of the Gaussian smoothing kernel.
+   */
+  void update_smoothing_kernel();
+
+  /**
    * @brief Update and smooth the adhesion field
    */
   void update_adhesion_field();
@@ -136,7 +151,10 @@ private:
   int R0_; ///< Roundness (perimeter^2/area) of a 4-connected circle
   double R_nuc_; ///< controls sharpness of roundness constraint
   double dyn_basal_; ///< basal weight for protrusion probability of dynein factor
-  double prop_factor; ///< number in range [0 1] to multiply protrusions and retraction weights to study effect of scaling
+  double prop_factor_; ///< number in range [0, 1] to multiply protrusions and retraction weights to study effect of scaling
+  double dyn_norm_k_; ///< "steepness" value for smoothing dynein force values using sigmoid
+  double dyn_sigma_; ///< sigma value for gaussian smoothing of dynein force
+  int dyn_kernel_size_; ///< size of the gaussian smoothing kernel (should be odd)
 
   // Reaction-diffusion parameters
   double DA_; ///< Diffusion coefficient of active GTPase
@@ -210,6 +228,8 @@ private:
   Mat_d adh_g_; ///< smoothed adhesion points
   Mat_d adh_f_; ///< field of adhesion influence
   Mat_d dyn_f_; ///< dynein field force
+
+  Mat_d g_dyn_f_; ///< saved kernel for gaussian smoothing of dyn_f
   
   // random number generation helpers
   std::mt19937 rng;

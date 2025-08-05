@@ -178,7 +178,6 @@ void CellModel::update_dyn_nuc_field() {
   // helper constants
   const int DR[4] = {1, -1, 0, 0};
   const int DC[4] = {0, 0, 1, -1};
-  const double k = 0.2;
 
   // generate random starting order
   std::vector<std::pair<int, int>> nuc_coords; // coordinates of the inner pixels of the nucleus outline
@@ -241,7 +240,37 @@ void CellModel::update_dyn_nuc_field() {
     for (int j = frame_col_start_; j <= frame_col_end_; j++) {
       if (dyn_f_(i, j) == 0) continue;
       const double diff = dyn_f_(i, j) - dyn_f_avg;
-      dyn_f_(i, j) = 1.0 / (1.0 + std::exp(-k * diff));
+      dyn_f_(i, j) = 1.0 / (1.0 + std::exp(-dyn_norm_k_ * diff));
+    }
+  }
+}
+
+const double CellModel::get_smoothed_dyn_f(const int r, const int c) {
+  const int diff = dyn_kernel_size_ / 2;
+  const int row_start = std::max(r - diff, 0);
+  const int row_n = std::min(dyn_kernel_size_, sim_rows_ - r);
+  const int col_start = std::max(c - diff, 0);
+  const int col_n = std::min(dyn_kernel_size_, sim_cols_ - c);
+
+  double smoothed = 0.0;
+  #pragma omp parallel for collapse(2) reduction(+:smoothed)
+  for (int i = 0; i < row_n; i++) {
+    for (int j = 0; j < col_n; j++) {
+      smoothed += dyn_f_(row_start + i, col_start + j) * g_dyn_f_(i, j);
+    }
+  }
+
+  return smoothed;
+}
+
+void CellModel::update_smoothing_kernel() {
+  const double sigma2 = dyn_sigma_ * dyn_sigma_;
+  const int c = dyn_kernel_size_ / 2; // center of the kernel
+  g_dyn_f_ = Mat_d(dyn_kernel_size_, dyn_kernel_size_);
+  for (int i = 0; i < dyn_kernel_size_; i++) {
+    for (int j = 0; j < dyn_kernel_size_; j++) {
+      const double diff2 = (i - c) * (i - c) + (j - c) * (j - c);
+      g_dyn_f_(i, j) = (1.0 / (2 * M_PI * sigma2)) * std::exp(-diff2 / (2 * sigma2));
     }
   }
 }
