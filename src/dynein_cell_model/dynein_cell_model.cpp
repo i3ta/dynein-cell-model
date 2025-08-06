@@ -7,6 +7,13 @@
 
 #include <dynein_cell_model/dynein_cell_model.hpp>
 #include <unordered_map>
+#include <unordered_set>
+
+struct pair_hash {
+  std::size_t operator()(const std::pair<int, int>& p) const {
+    return std::hash<int>()(p.first) ^ (std::hash<int>()(p.second) << 1);
+  }
+};
 
 namespace dynein_cell_model {
 CellModel::CellModel() {
@@ -201,6 +208,54 @@ void CellModel::protrude_nuc() {
   update_outlines_nuc();
 }
 
+void CellModel::update_outlines_nuc() {
+  /**
+   * Iterate through nucleus pixels and add 4-neighbors that are not nucleus to
+   * outer outline.
+   */
+  const int DR[4] = {-1, 1, 0, 0};
+  const int DC[4] = {0, 0, -1, 1};
+
+  // Clear outlines
+  outline_nuc_.setZero();
+  inner_outline_nuc_.setZero();
+
+  #pragma omp parallel
+  {
+    std::unordered_set<std::pair<int, int>, pair_hash> local_inner, local_outer;
+
+    // Iterate through nucleus pixels
+    #pragma omp for nowait
+    for (int k = 0; k < nuc_.outerSize(); k++) {
+      for (SpMat_i::InnerIterator it(nuc_, k); it; ++it) {
+        const int r = it.row();
+        const int c = it.col();
+        bool outline = false;
+        for (int i = 0; i < 4; i++) {
+          const int nr = r + DR[i];
+          const int nc = c + DC[i];
+          if (nr < 0 || nr >= sim_rows_ || nc < 0 || nc >= sim_cols_) continue;
+          if (nuc_.coeff(nr, nc) == 0) {
+            local_inner.insert({r, c});
+            local_outer.insert({nr, nc});
+          }
+        }
+      }
+    }
+
+    // update outlines
+    #pragma omp critical
+    {
+      for (auto &[r, c]: local_inner) {
+        inner_outline_nuc_.coeffRef(r, c) = 1;
+      }
+      for (auto &[r, c]: local_outer) {
+        outline_nuc_.coeffRef(r, c) = 1;
+      }
+    }
+  }
+}
+
 void CellModel::update_dyn_nuc_field() {
   /**
    * This function calculates a field of dynein factor influence from within
@@ -236,7 +291,7 @@ void CellModel::update_dyn_nuc_field() {
 
   // perform bfs and keep track of which pixel each pixel originated from,
   std::deque<std::pair<int, int>> q(nuc_coords.begin(), nuc_coords.end());
-  std::unordered_map<std::pair<int, int>, std::pair<int, int>> from; // which pixel each pixel came from
+  std::unordered_map<std::pair<int, int>, std::pair<int, int>, pair_hash> from; // which pixel each pixel came from
   std::stack<std::pair<int, int>> rev; // order to revisit pixels (from out to in)
   while (!q.empty()) {
     auto [r, c] = q.front();
