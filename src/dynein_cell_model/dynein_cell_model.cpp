@@ -152,7 +152,53 @@ void CellModel::update_frame() {
 }
 
 void CellModel::protrude_nuc() {
+  // calculate probability coefficients
+  const double V_cor = 1.0 / (1 + std::exp((V_nuc_ - V0_nuc_) / T_nuc_));
+  const int perim_nuc = outline_nuc_.nonZeros();
+  const double R = double(perim_nuc * perim_nuc) / V_nuc_;
+  const double R_cor = 1.0 / (1 + std::exp((R - R0_) / R_nuc_));
+  const double n_diag = 1.0 / std::pow(M_SQRT1_2, g_);
+  const double C = 4.0 * (1.0 + n_diag);
+   
+  // randomize protrude order
+  std::vector<std::pair<int, int>> protrude_coords;
+  for (int k = 0; k < outline_nuc_.outerSize(); k++) {
+    for (Eigen::SparseMatrix<int>::InnerIterator it(cell_, k); it; ++it) {
+      protrude_coords.push_back({it.row(), it.col()});
+    }
+  }
+  std::shuffle(protrude_coords.begin(), protrude_coords.end(), rng);
 
+  // protrude
+  #pragma omp parallel for
+  for (int i = 0; i < protrude_coords.size(); i++) {
+    auto [r, c] = protrude_coords[i];
+    
+    if (inner_outline_.coeff(r, c) == 1 || 
+        protrude_conf_.count(encode_8(nuc_, r, c))) // Check if protrusion would be valid
+      continue;
+
+    // get protrusion probability
+    const double n = 
+      n_diag * (nuc_.coeff(r - 1, c) + nuc_.coeff(r, c - 1) + nuc_.coeff(r + 1, c) + nuc_.coeff(r, c + 1)) +
+      nuc_.coeff(r - 1, c) + nuc_.coeff(r, c - 1) + nuc_.coeff(r + 1, c) + nuc_.coeff(r, c + 1);
+    const double w = std::pow(n / C, k_nuc_) * R_cor * V_cor * 
+      (dyn_basal_ + (1 - dyn_basal_) * dyn_f_(r, c));
+
+    // try protruding to this pixel
+    const double p = prob_dist(rng);
+    if (p < w) {
+      nuc_.coeffRef(r, c) = 1;
+      AC_cor_sum_ -= AC_(r, c);
+      AC_(r, c) = 0;
+      IC_cor_sum_ -= IC_(r, c);
+      IC_(r, c) = 0;
+      FC_(r, c) = 0;
+    }
+  }
+
+  // update nucleus outlines
+  update_outlines_nuc();
 }
 
 void CellModel::update_dyn_nuc_field() {
@@ -245,36 +291,6 @@ void CellModel::update_dyn_nuc_field() {
   }
 }
 
-const double CellModel::get_smoothed_dyn_f(const int r, const int c) {
-  const int diff = dyn_kernel_size_ / 2;
-  const int row_start = std::max(r - diff, 0);
-  const int row_n = std::min(dyn_kernel_size_, sim_rows_ - r);
-  const int col_start = std::max(c - diff, 0);
-  const int col_n = std::min(dyn_kernel_size_, sim_cols_ - c);
-
-  double smoothed = 0.0;
-  #pragma omp parallel for collapse(2) reduction(+:smoothed)
-  for (int i = 0; i < row_n; i++) {
-    for (int j = 0; j < col_n; j++) {
-      smoothed += dyn_f_(row_start + i, col_start + j) * g_dyn_f_(i, j);
-    }
-  }
-
-  return smoothed;
-}
-
-void CellModel::update_smoothing_kernel() {
-  const double sigma2 = dyn_sigma_ * dyn_sigma_;
-  const int c = dyn_kernel_size_ / 2; // center of the kernel
-  g_dyn_f_ = Mat_d(dyn_kernel_size_, dyn_kernel_size_);
-  for (int i = 0; i < dyn_kernel_size_; i++) {
-    for (int j = 0; j < dyn_kernel_size_; j++) {
-      const double diff2 = (i - c) * (i - c) + (j - c) * (j - c);
-      g_dyn_f_(i, j) = (1.0 / (2 * M_PI * sigma2)) * std::exp(-diff2 / (2 * sigma2));
-    }
-  }
-}
-
 void CellModel::update_adhesion_field() {
   /**
     * This function updates the adhesion field based on the positions of the
@@ -346,6 +362,86 @@ void CellModel::update_adhesion_field() {
     }
   }
 }
+
+const double CellModel::get_smoothed_dyn_f(const int r, const int c) {
+  const int diff = dyn_kernel_size_ / 2;
+  const int row_start = std::max(r - diff, 0);
+  const int row_n = std::min(dyn_kernel_size_, sim_rows_ - r);
+  const int col_start = std::max(c - diff, 0);
+  const int col_n = std::min(dyn_kernel_size_, sim_cols_ - c);
+
+  double smoothed = 0.0;
+  #pragma omp parallel for collapse(2) reduction(+:smoothed)
+  for (int i = 0; i < row_n; i++) {
+    for (int j = 0; j < col_n; j++) {
+      smoothed += dyn_f_(row_start + i, col_start + j) * g_dyn_f_(i, j);
+    }
+  }
+
+  return smoothed;
+}
+
+void CellModel::update_smoothing_kernel() {
+  const double sigma2 = dyn_sigma_ * dyn_sigma_;
+  const int c = dyn_kernel_size_ / 2; // center of the kernel
+  g_dyn_f_ = Mat_d(dyn_kernel_size_, dyn_kernel_size_);
+  for (int i = 0; i < dyn_kernel_size_; i++) {
+    for (int j = 0; j < dyn_kernel_size_; j++) {
+      const double diff2 = (i - c) * (i - c) + (j - c) * (j - c);
+      g_dyn_f_(i, j) = (1.0 / (2 * M_PI * sigma2)) * std::exp(-diff2 / (2 * sigma2));
+    }
+  }
+}
+
+const uint8_t CellModel::encode_8(SpMat_i &mat, const int r, const int c) {
+  int rows = mat.rows();
+  int cols = mat.cols();
+  
+  // Helper lambda to safely get matrix value (returns 0 for out-of-bounds)
+  auto safe_get = [&](int row, int col) -> int {
+    if (row >= 0 && row < rows && col >= 0 && col < cols) {
+      return mat.coeff(row, col);
+    }
+    return 0;
+  };
+  
+  return (safe_get(r-1, c-1) << 0) |  // top-left
+         (safe_get(r-1, c  ) << 1) |  // top
+         (safe_get(r-1, c+1) << 2) |  // top-right
+         (safe_get(r,   c+1) << 3) |  // right
+         (safe_get(r+1, c+1) << 4) |  // bottom-right
+         (safe_get(r+1, c  ) << 5) |  // bottom
+         (safe_get(r+1, c-1) << 6) |  // bottom-left
+         (safe_get(r,   c-1) << 7);   // left
+}
+
+const bool CellModel::is_valid_config_prot(uint8_t conf) {
+  // Diagonal-only connections (L-shaped corners without edge support)
+  bool diag1 = (conf & (1 << 0)) && !(conf & (1 << 1)) && !(conf & (1 << 7)); // top-left
+  bool diag2 = (conf & (1 << 2)) && !(conf & (1 << 1)) && !(conf & (1 << 3)); // top-right
+  bool diag3 = (conf & (1 << 4)) && !(conf & (1 << 3)) && !(conf & (1 << 5)); // bottom-right
+  bool diag4 = (conf & (1 << 6)) && !(conf & (1 << 5)) && !(conf & (1 << 7)); // bottom-left
+
+  if (diag1 || diag2 || diag3 || diag4) return false;
+
+  // Pinch cases
+  bool vertical_pinch = (conf & (1 << 1)) && (conf & (1 << 5)) && !(conf & (1 << 3)) && !(conf & (1 << 7));
+  bool horizontal_pinch = (conf & (1 << 3)) && (conf & (1 << 7)) && !(conf & (1 << 1)) && !(conf & (1 << 5));
+
+  if (vertical_pinch || horizontal_pinch) return false;
+
+  return true;
+}
+
+void CellModel::update_valid_conf() {
+  // Create protrusion configurations
+  for (int i = 0; i < (1 << 8); i++) {
+    if (is_valid_config_prot(i)) {
+      protrude_conf_.insert(i);
+    }
+  }
+}
+
 
 const std::vector<int> CellModel::generate_indices(const int n, const int lb, const int ub) {
   if (ub - lb < n) {

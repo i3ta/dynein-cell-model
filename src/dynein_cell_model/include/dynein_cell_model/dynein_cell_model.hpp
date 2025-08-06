@@ -2,6 +2,7 @@
 #define DYNEIN_CELL_MODEL_HPP
 
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include <random>
 
@@ -92,6 +93,16 @@ private:
   void retract();
 
   /**
+   * @brief Update the nucleus outlines.
+   */
+  void update_outlines_nuc();
+
+  /**
+   * @brief Update the cell outlines.
+   */
+  void update_outlines();
+
+  /**
     * @brief Update the concentrations of cell signals for each pixel.
     */
   void update_concentrations();
@@ -105,6 +116,11 @@ private:
    * @brief Update the forces that dynein is putting on different parts of the cell.
    */
   void update_dyn_nuc_field();
+
+  /**
+   * @brief Update and smooth the adhesion field
+   */
+  void update_adhesion_field();
 
   /**
    * @brief Get the dyn_f value at (r, c) smoothed with a Gaussian smoothing kernel.
@@ -122,9 +138,29 @@ private:
   void update_smoothing_kernel();
 
   /**
-   * @brief Update and smooth the adhesion field
+   * @brief Get the integer encoding of the 8-neighbors of a specific pixel in a sparse matrix.
+   *
+   * @param mat matrix
+   * @param r row
+   * @param c column
+   *
+   * @return 8-neighbors of the specific pixel encoded into an integer.
    */
-  void update_adhesion_field();
+  const uint8_t encode_8(SpMat_i &mat, const int r, const int c);
+
+  /**
+   * @brief Determine if a specific integer configuration is valid.
+   *
+   * @param conf integer configuration from encode_8
+   *
+   * @return whether the configuration is valid
+   */
+  const bool is_valid_config_prot(uint8_t conf);
+
+  /**
+   * @brief Update and save the valid pixel configurations for protrusion and retraction.
+   */
+  void update_valid_conf();
 
   /**
     * @brief Helper function to generate random distinct indices.
@@ -230,6 +266,7 @@ private:
   Mat_d dyn_f_; ///< dynein field force
 
   Mat_d g_dyn_f_; ///< saved kernel for gaussian smoothing of dyn_f
+  std::unordered_set<int> protrude_conf_; ///< numerical encoding of allowed protrusion configurations
   
   // random number generation helpers
   std::mt19937 rng;
