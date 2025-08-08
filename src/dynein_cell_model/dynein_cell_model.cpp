@@ -159,6 +159,17 @@ void CellModel::update_frame() {
 }
 
 void CellModel::protrude_nuc() {
+  /**
+   * Protrude the nucleus. This function is split into 4 main sections:
+   * - Calculate some coefficients for protrusion probabilities. We can
+   *   calculate them early to prevent having to calculate again for each
+   *   pixel.
+   * - Get a random protrusion order.
+   * - Calculate protrusion probabilities for each pixel and try protruding the
+   *   nucleus in that direction.
+   * - Update the nucleus outlines.
+   */
+
   // calculate probability coefficients
   const double V_cor = 1.0 / (1 + std::exp((V_nuc_ - V0_nuc_) / T_nuc_));
   const int perim_nuc = outline_nuc_.nonZeros();
@@ -168,39 +179,131 @@ void CellModel::protrude_nuc() {
   const double C = 4.0 * (1.0 + n_diag);
    
   // randomize protrude order
-  std::vector<std::pair<int, int>> protrude_coords;
-  for (int k = 0; k < outline_nuc_.outerSize(); k++) {
-    for (Eigen::SparseMatrix<int>::InnerIterator it(cell_, k); it; ++it) {
-      protrude_coords.push_back({it.row(), it.col()});
-    }
-  }
-  std::shuffle(protrude_coords.begin(), protrude_coords.end(), rng);
+  std::vector<std::pair<int, int>> protrude_coords = randomize_nonzero(outline_nuc_);
 
   // protrude
-  #pragma omp parallel for
-  for (int i = 0; i < protrude_coords.size(); i++) {
-    auto [r, c] = protrude_coords[i];
-    
-    if (inner_outline_.coeff(r, c) == 1 || 
-        protrude_conf_.count(encode_8(nuc_, r, c))) // Check if protrusion would be valid
-      continue;
+  #pragma omp parallel
+  {
+    std::vector<std::pair<int, int>> to_protrude; // thread have its own list
 
-    // get protrusion probability
-    const double n = 
-      n_diag * (nuc_.coeff(r - 1, c) + nuc_.coeff(r, c - 1) + nuc_.coeff(r + 1, c) + nuc_.coeff(r, c + 1)) +
-      nuc_.coeff(r - 1, c) + nuc_.coeff(r, c - 1) + nuc_.coeff(r + 1, c) + nuc_.coeff(r, c + 1);
-    const double w = std::pow(n / C, k_nuc_) * R_cor * V_cor * 
-      (dyn_basal_ + (1 - dyn_basal_) * dyn_f_(r, c));
+    #pragma omp for nowait
+    for (int i = 0; i < protrude_coords.size(); i++) {
+      auto [r, c] = protrude_coords[i];
+      
+      if (inner_outline_.coeff(r, c) == 1 || 
+          protrude_conf_.count(encode_8(nuc_, r, c))) // Check if protrusion would be valid
+        continue;
 
-    // try protruding to this pixel
-    const double p = prob_dist(rng);
-    if (p < w) {
-      nuc_.coeffRef(r, c) = 1;
-      AC_cor_sum_ -= AC_(r, c);
-      AC_(r, c) = 0;
-      IC_cor_sum_ -= IC_(r, c);
-      IC_(r, c) = 0;
-      FC_(r, c) = 0;
+      // get protrusion probability
+      const double n = 
+        n_diag * (nuc_.coeff(r - 1, c) + nuc_.coeff(r, c - 1) + nuc_.coeff(r + 1, c) + nuc_.coeff(r, c + 1)) +
+        nuc_.coeff(r - 1, c) + nuc_.coeff(r, c - 1) + nuc_.coeff(r + 1, c) + nuc_.coeff(r, c + 1);
+      const double w = std::pow(n / C, k_nuc_) * R_cor * V_cor * 
+        (dyn_basal_ + (1 - dyn_basal_) * dyn_f_(r, c));
+
+      // try protruding to this pixel
+      const double p = prob_dist(rng);
+      if (p < w) {
+        to_protrude.push_back({r, c});
+      }
+    }
+
+    #pragma omp critical
+    {
+      for (auto &[r, c]: to_protrude) {
+        nuc_.coeffRef(r, c) = 1;
+        AC_cor_sum_ -= AC_(r, c);
+        AC_(r, c) = 0;
+        IC_cor_sum_ -= IC_(r, c);
+        IC_(r, c) = 0;
+        FC_(r, c) = 0;
+      }
+    }
+  }
+
+  // update nucleus outlines
+  update_outlines_nuc();
+}
+
+void CellModel::retract_nuc() {
+  /**
+   * The logic for this function is identical to protrude_nuc, but some of the values
+   * are inverted for retraction.
+   *
+   * - The exponent for V_cor is negated
+   * - counting the neighbors n we instead count the empty pixels
+   * - dyn_f_ values are replaced with 1 - dyn_f_
+   */
+  // helper constants
+  const int DR[8] = {-1, -1, -1, 0, 0, 1, 1, 1};
+  const int DC[8] = {-1, 0, 1, -1, 1, -1, 0, 1};
+
+  // calculate probability coefficients
+  const double V_cor = 1.0 / (1 + std::exp(-(V_nuc_ - V0_nuc_) / T_nuc_));
+  const int perim_nuc = outline_nuc_.nonZeros();
+  const double R = double(perim_nuc * perim_nuc) / V_nuc_;
+  const double R_cor = 1.0 / (1 + std::exp((R - R0_) / R_nuc_));
+  const double n_diag = 1.0 / std::pow(M_SQRT1_2, g_);
+  const double C = 4.0 * (1.0 + n_diag);
+   
+  // randomize protrude order
+  std::vector<std::pair<int, int>> protrude_coords = randomize_nonzero(outline_nuc_);
+
+  // protrude
+  #pragma omp parallel
+  {
+    std::vector<std::pair<int, int>> to_retract;
+
+    #pragma omp for nowait
+    for (int i = 0; i < protrude_coords.size(); i++) {
+      auto [r, c] = protrude_coords[i];
+      
+      if (inner_outline_.coeff(r, c) == 1 || 
+          protrude_conf_.count(encode_8(nuc_, r, c))) // Check if protrusion would be valid
+        continue;
+
+      // get protrusion probability
+      const double n = 
+        n_diag * (!nuc_.coeff(r - 1, c) + !nuc_.coeff(r, c - 1) + !nuc_.coeff(r + 1, c) + !nuc_.coeff(r, c + 1)) +
+        !nuc_.coeff(r - 1, c) + !nuc_.coeff(r, c - 1) + !nuc_.coeff(r + 1, c) + !nuc_.coeff(r, c + 1);
+      const double w = std::pow(n / C, k_nuc_) * R_cor * V_cor * 
+        (dyn_basal_ + (1 - dyn_basal_) * (1 - dyn_f_(r, c))); // Inverted from protrusion
+
+      // try protruding to this pixel
+      const double p = prob_dist(rng);
+      if (p < w) {
+        to_retract.push_back({r, c});
+      }
+    }
+
+    #pragma omp critical
+    {
+      for (auto &[r, c]: to_retract) {
+        nuc_.coeffRef(r, c) = 0;
+
+        // count number of neighbors and sum up values
+        int n = 0;
+        double AC = 0.0;
+        double FC = 0.0;
+        double IC = 0.0;
+        for (int i = 0; i < 8; i++) {
+          const int nr = r + DR[i];
+          const int nc = c + DC[i]; 
+          if (nuc_.coeff(nr, nc) == 0) {
+            // neighbors of nucleus pixel should always be cell pixels
+            n++;
+            AC += AC_(nr, nc);
+            IC += IC_(nr, nc);
+            FC += FC_(nr, nc);
+          }
+        }
+
+        AC_(r, c) = AC;
+        AC_cor_sum_ += AC_(r, c);
+        IC_(r, c) = IC;
+        IC_cor_sum_ += IC_(r, c);
+        FC_(r, c) = FC;
+      }
     }
   }
 
@@ -281,13 +384,7 @@ void CellModel::update_dyn_nuc_field() {
   const int DC[4] = {0, 0, 1, -1};
 
   // generate random starting order
-  std::vector<std::pair<int, int>> nuc_coords; // coordinates of the inner pixels of the nucleus outline
-  for (int k = 0; k < inner_outline_nuc_.outerSize(); k++) {
-    for (SpMat_i::InnerIterator it(inner_outline_nuc_, k); it; ++it) {
-      nuc_coords.push_back({it.row(), it.col()});
-    }
-  }
-  std::shuffle(nuc_coords.begin(), nuc_coords.end(), rng); // random visit order
+  std::vector<std::pair<int, int>> nuc_coords = randomize_nonzero(inner_outline_nuc_);
 
   // perform bfs and keep track of which pixel each pixel originated from,
   std::deque<std::pair<int, int>> q(nuc_coords.begin(), nuc_coords.end());
@@ -511,6 +608,18 @@ const std::vector<int> CellModel::generate_indices(const int n, const int lb, co
   std::shuffle(arr.begin(), arr.end(), rng);
 
   return std::vector<int>(arr.begin(), arr.begin() + n);
+}
+
+const std::vector<std::pair<int, int>> CellModel::randomize_nonzero(const SpMat_i mat) {
+  std::vector<std::pair<int, int>> coords;
+  for (int k = 0; k < mat.outerSize(); k++) {
+    for (SpMat_i::InnerIterator it(mat, k); it; ++it) {
+      coords.push_back({it.row(), it.col()});
+    }
+  }
+  std::shuffle(coords.begin(), coords.end(), rng);
+
+  return coords;
 }
 
 } // dynein_cell_model namespace

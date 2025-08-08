@@ -163,15 +163,24 @@ private:
   void update_valid_conf();
 
   /**
-    * @brief Helper function to generate random distinct indices.
-    *
-    * @param n Number of indices to generate
-    * @param lb Lower bound of indices (inclusive)
-    * @param ub Upper bound of indices (exclusive)
-    *
-    * @return Vector of random indices
-    */
+   * @brief Helper function to generate random distinct indices.
+   *
+   * @param n Number of indices to generate
+   * @param lb Lower bound of indices (inclusive)
+   * @param ub Upper bound of indices (exclusive)
+   *
+   * @return Vector of random indices
+   */
   const std::vector<int> generate_indices(const int n, const int lb, const int ub);
+
+  /**
+   * @brief Generate a random visit order for all of the nonzero pixels in the SpMat_i.
+   *
+   * @param mat SpMat_i to randomize pixels of 
+   *
+   * @return Vector of randomized order
+   */
+  const std::vector<std::pair<int, int>> randomize_nonzero(const SpMat_i mat);
 
   // Protrusion and retraction parameters
   double k_; ///< Relative contribution of geometry factor to cell protrusion/retraction probability
