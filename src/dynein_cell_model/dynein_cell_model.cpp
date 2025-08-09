@@ -245,7 +245,7 @@ void CellModel::retract_nuc() {
   const double C = 4.0 * (1.0 + n_diag);
    
   // randomize protrude order
-  std::vector<std::pair<int, int>> protrude_coords = randomize_nonzero(inner_outline_nuc_);
+  std::vector<std::pair<int, int>> retract_coords = randomize_nonzero(inner_outline_nuc_);
 
   // protrude
   #pragma omp parallel
@@ -253,8 +253,8 @@ void CellModel::retract_nuc() {
     std::vector<std::pair<int, int>> to_retract;
 
     #pragma omp for nowait
-    for (int i = 0; i < protrude_coords.size(); i++) {
-      auto [r, c] = protrude_coords[i];
+    for (int i = 0; i < retract_coords.size(); i++) {
+      auto [r, c] = retract_coords[i];
       
       if (inner_outline_.coeff(r, c) == 0 || 
           retract_conf_.count(encode_8(nuc_, r, c)) == 0) // Check if retraction would be valid
@@ -296,11 +296,11 @@ void CellModel::retract_nuc() {
           }
         }
 
-        AC_(r, c) = AC;
+        AC_(r, c) = AC / n;
         AC_cor_sum_ += AC_(r, c);
-        IC_(r, c) = IC;
+        IC_(r, c) = IC / n;
         IC_cor_sum_ += IC_(r, c);
-        FC_(r, c) = FC;
+        FC_(r, c) = FC / n;
       }
     }
   }
