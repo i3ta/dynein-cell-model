@@ -172,8 +172,7 @@ void CellModel::protrude_nuc() {
 
   // calculate probability coefficients
   const double V_cor = 1.0 / (1 + std::exp((V_nuc_ - V0_nuc_) / T_nuc_));
-  const int perim_nuc = outline_nuc_.nonZeros();
-  const double R = double(perim_nuc * perim_nuc) / V_nuc_;
+  const double R = double(P_nuc_ * P_nuc_) / V_nuc_;
   const double R_cor = 1.0 / (1 + std::exp((R - R0_) / R_nuc_));
   const double n_diag = 1.0 / std::pow(M_SQRT1_2, g_);
   const double C = 4.0 * (1.0 + n_diag);
@@ -191,13 +190,13 @@ void CellModel::protrude_nuc() {
       auto [r, c] = protrude_coords[i];
       
       if (inner_outline_.coeff(r, c) == 1 || 
-          protrude_conf_.count(encode_8(nuc_, r, c))) // Check if protrusion would be valid
+          protrude_conf_.count(encode_8(nuc_, r, c)) == 0) // Check if protrusion would be valid
         continue;
 
       // get protrusion probability
       const double n = 
-        n_diag * (nuc_.coeff(r - 1, c) + nuc_.coeff(r, c - 1) + nuc_.coeff(r + 1, c) + nuc_.coeff(r, c + 1)) +
-        nuc_.coeff(r - 1, c) + nuc_.coeff(r, c - 1) + nuc_.coeff(r + 1, c) + nuc_.coeff(r, c + 1);
+        n_diag * (nuc_.coeff(r - 1, c - 1) + nuc_.coeff(r + 1, c - 1) + nuc_.coeff(r + 1, c + 1) + nuc_.coeff(r - 1, c + 1)) +
+                  nuc_.coeff(r - 1, c) + nuc_.coeff(r, c - 1) + nuc_.coeff(r + 1, c) + nuc_.coeff(r, c + 1);
       const double w = std::pow(n / C, k_nuc_) * R_cor * V_cor * 
         (dyn_basal_ + (1 - dyn_basal_) * dyn_f_(r, c));
 
@@ -222,7 +221,7 @@ void CellModel::protrude_nuc() {
   }
 
   // update nucleus outlines
-  update_outlines_nuc();
+  update_nuc();
 }
 
 void CellModel::retract_nuc() {
@@ -240,14 +239,13 @@ void CellModel::retract_nuc() {
 
   // calculate probability coefficients
   const double V_cor = 1.0 / (1 + std::exp(-(V_nuc_ - V0_nuc_) / T_nuc_));
-  const int perim_nuc = outline_nuc_.nonZeros();
-  const double R = double(perim_nuc * perim_nuc) / V_nuc_;
+  const double R = double(P_nuc_ * P_nuc_) / V_nuc_;
   const double R_cor = 1.0 / (1 + std::exp((R - R0_) / R_nuc_));
   const double n_diag = 1.0 / std::pow(M_SQRT1_2, g_);
   const double C = 4.0 * (1.0 + n_diag);
    
   // randomize protrude order
-  std::vector<std::pair<int, int>> protrude_coords = randomize_nonzero(outline_nuc_);
+  std::vector<std::pair<int, int>> protrude_coords = randomize_nonzero(inner_outline_nuc_);
 
   // protrude
   #pragma omp parallel
@@ -258,18 +256,18 @@ void CellModel::retract_nuc() {
     for (int i = 0; i < protrude_coords.size(); i++) {
       auto [r, c] = protrude_coords[i];
       
-      if (inner_outline_.coeff(r, c) == 1 || 
-          protrude_conf_.count(encode_8(nuc_, r, c))) // Check if protrusion would be valid
+      if (inner_outline_.coeff(r, c) == 0 || 
+          retract_conf_.count(encode_8(nuc_, r, c)) == 0) // Check if retraction would be valid
         continue;
 
       // get protrusion probability
       const double n = 
-        n_diag * (!nuc_.coeff(r - 1, c) + !nuc_.coeff(r, c - 1) + !nuc_.coeff(r + 1, c) + !nuc_.coeff(r, c + 1)) +
-        !nuc_.coeff(r - 1, c) + !nuc_.coeff(r, c - 1) + !nuc_.coeff(r + 1, c) + !nuc_.coeff(r, c + 1);
+        n_diag * (!nuc_.coeff(r - 1, c - 1) + !nuc_.coeff(r + 1, c - 1) + !nuc_.coeff(r + 1, c + 1) + !nuc_.coeff(r - 1, c + 1)) +
+                  !nuc_.coeff(r - 1, c) + !nuc_.coeff(r, c - 1) + !nuc_.coeff(r + 1, c) + !nuc_.coeff(r, c + 1);
       const double w = std::pow(n / C, k_nuc_) * R_cor * V_cor * 
         (dyn_basal_ + (1 - dyn_basal_) * (1 - dyn_f_(r, c))); // Inverted from protrusion
 
-      // try protruding to this pixel
+      // try retracting this pixel
       const double p = prob_dist(rng);
       if (p < w) {
         to_retract.push_back({r, c});
@@ -308,10 +306,10 @@ void CellModel::retract_nuc() {
   }
 
   // update nucleus outlines
-  update_outlines_nuc();
+  update_nuc();
 }
 
-void CellModel::update_outlines_nuc() {
+void CellModel::update_nuc() {
   /**
    * Iterate through nucleus pixels and add 4-neighbors that are not nucleus to
    * outer outline.
@@ -357,6 +355,10 @@ void CellModel::update_outlines_nuc() {
       }
     }
   }
+
+  // update nucleus volume and perimeter
+  V_nuc_ = nuc_.nonZeros();
+  P_nuc_ = inner_outline_nuc_.nonZeros();
 }
 
 void CellModel::update_dyn_nuc_field() {
@@ -585,11 +587,36 @@ const bool CellModel::is_valid_config_prot(uint8_t conf) {
   return true;
 }
 
+const bool CellModel::is_valid_config_retr(uint8_t conf) {
+  // Diagonal-only connections (L-shaped corners without edge support)
+  bool diag1 = !(conf & (1 << 0)) && (conf & (1 << 1)) && (conf & (1 << 7)); // top-left
+  bool diag2 = !(conf & (1 << 2)) && (conf & (1 << 1)) && (conf & (1 << 3)); // top-right
+  bool diag3 = !(conf & (1 << 4)) && (conf & (1 << 3)) && (conf & (1 << 5)); // bottom-right
+  bool diag4 = !(conf & (1 << 6)) && (conf & (1 << 5)) && (conf & (1 << 7)); // bottom-left
+
+  if (diag1 || diag2 || diag3 || diag4) return false;
+
+  // Pinch cases
+  bool vertical_pinch = (conf & (1 << 1)) && (conf & (1 << 5)) && !(conf & (1 << 3)) && !(conf & (1 << 7));
+  bool horizontal_pinch = (conf & (1 << 3)) && (conf & (1 << 7)) && !(conf & (1 << 1)) && !(conf & (1 << 5));
+
+  if (vertical_pinch || horizontal_pinch) return false;
+
+  return true;
+}
+
 void CellModel::update_valid_conf() {
   // Create protrusion configurations
   for (int i = 0; i < (1 << 8); i++) {
     if (is_valid_config_prot(i)) {
       protrude_conf_.insert(i);
+    }
+  }
+
+  // Create retraction configurations
+  for (int i = 0; i < (1 << 8); i++) {
+    if (is_valid_config_retr(i)) {
+      retract_conf_.insert(i);
     }
   }
 }

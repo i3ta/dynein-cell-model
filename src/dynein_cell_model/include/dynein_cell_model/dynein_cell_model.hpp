@@ -58,7 +58,6 @@ public:
     */
   void save_state(std::string dirname);
 
-private:
   /**
     * @brief Rearrange the adhesion points around the cell to simulate evolution
     * of cell adhesions. Randomly picks adh_frac of the adhesions and finds other
@@ -92,15 +91,16 @@ private:
     */
   void retract();
 
+private:
   /**
-   * @brief Update the nucleus outlines.
+   * @brief Update the nucleus outlines and values.
    */
-  void update_outlines_nuc();
+  void update_nuc();
 
   /**
-   * @brief Update the cell outlines.
+   * @brief Update the cell outlines and values.
    */
-  void update_outlines();
+  void update_cell();
 
   /**
     * @brief Update the concentrations of cell signals for each pixel.
@@ -156,6 +156,15 @@ private:
    * @return whether the configuration is valid
    */
   const bool is_valid_config_prot(uint8_t conf);
+
+  /**
+   * @brief Determine if a specific integer configuration is valid.
+   *
+   * @param conf integer configuration from encode_8
+   *
+   * @return whether the configuration is valid
+   */
+  const bool is_valid_config_retr(uint8_t conf);
 
   /**
    * @brief Update and save the valid pixel configurations for protrusion and retraction.
@@ -245,8 +254,10 @@ private:
   // Cell state variables
   int V0_; ///< initial volume of the cell, set up when initial Im is read
   int V_; ///< volume of the cell on the current step 
+  int P_; ///<< perimeter of the cell
   int V0_nuc_; ///< initial volume of the cell, set up when initial Im is read
   int V_nuc_; ///< volume of the cell on the current step 
+  int P_nuc_; ///< perimeter of the nucleus
 
   double A_cor_sum_; ///< Correct A values after retraction and protrusion
   double I_cor_sum_; ///< Correct I values after retraction and protrusion
@@ -276,6 +287,7 @@ private:
 
   Mat_d g_dyn_f_; ///< saved kernel for gaussian smoothing of dyn_f
   std::unordered_set<int> protrude_conf_; ///< numerical encoding of allowed protrusion configurations
+  std::unordered_set<int> retract_conf_; ///< numerical encoding of allowed retraction configurations
   
   // random number generation helpers
   std::mt19937 rng;
