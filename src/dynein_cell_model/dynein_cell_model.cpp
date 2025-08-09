@@ -114,7 +114,7 @@ void CellModel::rearrange_adhesions() {
       const int cand_c = idx % cols;
 
       // check new index valid
-      if (adh_.coeff(cand_r, cand_c) != 1 && env_.coeff(cand_r, cand_c) == 1 && cell_.coeff(cand_r, cand_c) == 1) {
+      if (adh_.coeff(cand_r, cand_c) != 1 && env_.coeff(cand_r, cand_c) == 1 && cell_(cand_r, cand_c) == 1) {
         // env_ and cell_ should both always be satisfied, but to be safe
         r = cand_r;
         c = cand_c;
@@ -137,13 +137,14 @@ void CellModel::update_frame() {
   int min_col = std::numeric_limits<int>::max();
   int max_col = std::numeric_limits<int>::min();
 
-  for (int k = 0; k < cell_.outerSize(); ++k) {
-    for (Eigen::SparseMatrix<int>::InnerIterator it(cell_, k); it; ++it) {
+  // only need to check inner outline of cell because those are the cell boundaries
+  for (int k = 0; k < inner_outline_.outerSize(); ++k) {
+    for (Eigen::SparseMatrix<int>::InnerIterator it(inner_outline_, k); it; ++it) {
       int i = it.row();
       int j = it.col();
 
       // Update bounding box
-      if (cell_.coeff(i, j) != 0) {
+      if (cell_(i, j) != 0) {
         min_row = std::min(min_row, i);
         max_row = std::max(max_row, i);
         min_col = std::min(min_col, j);
@@ -181,42 +182,29 @@ void CellModel::protrude_nuc() {
   std::vector<std::pair<int, int>> protrude_coords = randomize_nonzero(outline_nuc_);
 
   // protrude
-  #pragma omp parallel
-  {
-    std::vector<std::pair<int, int>> to_protrude; // thread have its own list
+  for (int i = 0; i < protrude_coords.size(); i++) {
+    auto [r, c] = protrude_coords[i];
+    
+    if (outline_.coeff(r, c) == 1 || 
+        protrude_conf_.count(encode_8(nuc_, r, c)) == 0) // Check if protrusion would be valid
+      continue;
 
-    #pragma omp for nowait
-    for (int i = 0; i < protrude_coords.size(); i++) {
-      auto [r, c] = protrude_coords[i];
-      
-      if (inner_outline_.coeff(r, c) == 1 || 
-          protrude_conf_.count(encode_8(nuc_, r, c)) == 0) // Check if protrusion would be valid
-        continue;
+    // get protrusion probability
+    const double n = 
+      n_diag * (nuc_(r - 1, c - 1) + nuc_(r + 1, c - 1) + nuc_(r + 1, c + 1) + nuc_(r - 1, c + 1)) +
+                nuc_(r - 1, c) + nuc_(r, c - 1) + nuc_(r + 1, c) + nuc_(r, c + 1);
+    const double w = std::pow(n / C, k_nuc_) * R_cor * V_cor * 
+      (dyn_basal_ + (1 - dyn_basal_) * dyn_f_(r, c));
 
-      // get protrusion probability
-      const double n = 
-        n_diag * (nuc_.coeff(r - 1, c - 1) + nuc_.coeff(r + 1, c - 1) + nuc_.coeff(r + 1, c + 1) + nuc_.coeff(r - 1, c + 1)) +
-                  nuc_.coeff(r - 1, c) + nuc_.coeff(r, c - 1) + nuc_.coeff(r + 1, c) + nuc_.coeff(r, c + 1);
-      const double w = std::pow(n / C, k_nuc_) * R_cor * V_cor * 
-        (dyn_basal_ + (1 - dyn_basal_) * dyn_f_(r, c));
-
-      // try protruding to this pixel
-      const double p = prob_dist(rng);
-      if (p < w) {
-        to_protrude.push_back({r, c});
-      }
-    }
-
-    #pragma omp critical
-    {
-      for (auto &[r, c]: to_protrude) {
-        nuc_.coeffRef(r, c) = 1;
-        AC_cor_sum_ -= AC_(r, c);
-        AC_(r, c) = 0;
-        IC_cor_sum_ -= IC_(r, c);
-        IC_(r, c) = 0;
-        FC_(r, c) = 0;
-      }
+    // try protruding to this pixel
+    const double p = prob_dist(rng);
+    if (p < w) {
+      nuc_(r, c) = 1;
+      AC_cor_sum_ -= AC_(r, c);
+      AC_(r, c) = 0;
+      IC_cor_sum_ -= IC_(r, c);
+      IC_(r, c) = 0;
+      FC_(r, c) = 0;
     }
   }
 
@@ -248,65 +236,90 @@ void CellModel::retract_nuc() {
   std::vector<std::pair<int, int>> retract_coords = randomize_nonzero(inner_outline_nuc_);
 
   // protrude
-  #pragma omp parallel
-  {
-    std::vector<std::pair<int, int>> to_retract;
+  for (int i = 0; i < retract_coords.size(); i++) {
+    auto [r, c] = retract_coords[i];
+    
+    if (inner_outline_.coeff(r, c) == 0 || 
+        retract_conf_.count(encode_8(nuc_, r, c)) == 0) // Check if retraction would be valid
+      continue;
 
-    #pragma omp for nowait
-    for (int i = 0; i < retract_coords.size(); i++) {
-      auto [r, c] = retract_coords[i];
-      
-      if (inner_outline_.coeff(r, c) == 0 || 
-          retract_conf_.count(encode_8(nuc_, r, c)) == 0) // Check if retraction would be valid
-        continue;
+    // get protrusion probability
+    const double n = 
+      n_diag * (!nuc_(r - 1, c - 1) + !nuc_(r + 1, c - 1) + !nuc_(r + 1, c + 1) + !nuc_(r - 1, c + 1)) +
+                !nuc_(r - 1, c) + !nuc_(r, c - 1) + !nuc_(r + 1, c) + !nuc_(r, c + 1);
+    const double w = std::pow(n / C, k_nuc_) * R_cor * V_cor * 
+      (dyn_basal_ + (1 - dyn_basal_) * (1 - dyn_f_(r, c))); // Inverted from protrusion
 
-      // get protrusion probability
-      const double n = 
-        n_diag * (!nuc_.coeff(r - 1, c - 1) + !nuc_.coeff(r + 1, c - 1) + !nuc_.coeff(r + 1, c + 1) + !nuc_.coeff(r - 1, c + 1)) +
-                  !nuc_.coeff(r - 1, c) + !nuc_.coeff(r, c - 1) + !nuc_.coeff(r + 1, c) + !nuc_.coeff(r, c + 1);
-      const double w = std::pow(n / C, k_nuc_) * R_cor * V_cor * 
-        (dyn_basal_ + (1 - dyn_basal_) * (1 - dyn_f_(r, c))); // Inverted from protrusion
+    // try retracting this pixel
+    const double p = prob_dist(rng);
+    if (p < w) {
+      nuc_(r, c) = 0;
 
-      // try retracting this pixel
-      const double p = prob_dist(rng);
-      if (p < w) {
-        to_retract.push_back({r, c});
-      }
-    }
-
-    #pragma omp critical
-    {
-      for (auto &[r, c]: to_retract) {
-        nuc_.coeffRef(r, c) = 0;
-
-        // count number of neighbors and sum up values
-        int n = 0;
-        double AC = 0.0;
-        double FC = 0.0;
-        double IC = 0.0;
-        for (int i = 0; i < 8; i++) {
-          const int nr = r + DR[i];
-          const int nc = c + DC[i]; 
-          if (nuc_.coeff(nr, nc) == 0) {
-            // neighbors of nucleus pixel should always be cell pixels
-            n++;
-            AC += AC_(nr, nc);
-            IC += IC_(nr, nc);
-            FC += FC_(nr, nc);
-          }
+      // count number of neighbors and sum up values
+      int n = 0;
+      double AC = 0.0;
+      double FC = 0.0;
+      double IC = 0.0;
+      for (int i = 0; i < 8; i++) {
+        const int nr = r + DR[i];
+        const int nc = c + DC[i]; 
+        if (nuc_(nr, nc) == 0) {
+          // neighbors of nucleus pixel should always be cell pixels
+          n++;
+          AC += AC_(nr, nc);
+          IC += IC_(nr, nc);
+          FC += FC_(nr, nc);
         }
-
-        AC_(r, c) = AC / n;
-        AC_cor_sum_ += AC_(r, c);
-        IC_(r, c) = IC / n;
-        IC_cor_sum_ += IC_(r, c);
-        FC_(r, c) = FC / n;
       }
+
+      AC_(r, c) = AC / n;
+      AC_cor_sum_ += AC_(r, c);
+      IC_(r, c) = IC / n;
+      IC_cor_sum_ += IC_(r, c);
+      FC_(r, c) = FC / n;
     }
   }
 
   // update nucleus outlines
   update_nuc();
+}
+
+void CellModel::protrude() {
+  // get probability coefficients
+  const double V_cor = 1 / (1 + std::exp((V_ - V0_) / T_));
+  const double A_max = A_.block(frame_row_start_, frame_col_start_, 
+                                frame_row_end_ - frame_row_start_ + 1, 
+                                frame_col_end_ - frame_col_start_ + 1).maxCoeff();
+  const double AC_max = AC_.block(frame_row_start_, frame_col_start_, 
+                                  frame_row_end_ - frame_row_start_ + 1, 
+                                  frame_col_end_ - frame_col_start_ + 1).maxCoeff();
+  const double n_diag = 1.0 / std::pow(M_SQRT1_2, g_);
+  const double C = 4.0 * (1.0 + n_diag);
+
+  // get random visiting order
+  std::vector<std::pair<int, int>> protrude_coords = randomize_nonzero(outline_);
+
+  // protrude in parallel
+  #pragma omp parallel
+  {
+    std::vector<std::pair<int, int>> to_protrude;
+
+    #pragma omp for nowait
+    for (int i = 0; i < protrude_coords.size(); i++) {
+      auto &[r, c] = protrude_coords[i];
+
+      if (protrude_conf_.count(encode_8(cell_, r, c)) == 0) // not valid protrude configuration
+        continue;
+
+      double w;
+      if (outline_nuc_.coeff(r, c) == 1) {
+        w = 1.0; // force push if nucleus is against edge of cell
+      } else {
+      }
+    }
+  }
+
+  // update cell
 }
 
 void CellModel::update_nuc() {
@@ -327,17 +340,15 @@ void CellModel::update_nuc() {
 
     // Iterate through nucleus pixels
     #pragma omp for nowait
-    for (int k = 0; k < nuc_.outerSize(); k++) {
-      for (SpMat_i::InnerIterator it(nuc_, k); it; ++it) {
-        const int r = it.row();
-        const int c = it.col();
+    for (int j = frame_col_start_; j <= frame_col_end_; j++) {
+      for (int i = frame_row_start_; i <= frame_row_end_; i++) {
         bool outline = false;
-        for (int i = 0; i < 4; i++) {
-          const int nr = r + DR[i];
-          const int nc = c + DC[i];
+        for (int k = 0; k < 4; k++) {
+          const int nr = i + DR[k];
+          const int nc = j + DC[k];
           if (nr < 0 || nr >= sim_rows_ || nc < 0 || nc >= sim_cols_) continue;
-          if (nuc_.coeff(nr, nc) == 0) {
-            local_inner.insert({r, c});
+          if (nuc_(nr, nc) == 0) {
+            local_inner.insert({i, j});
             local_outer.insert({nr, nc});
           }
         }
@@ -402,7 +413,7 @@ void CellModel::update_dyn_nuc_field() {
       std::pair<int, int> next(nr, nc);
       if (nr < frame_row_start_ || nr > frame_row_end_ ||
           nc < frame_col_start_ || nc > frame_col_end_ ||
-          cell_.coeffRef(nr, nc) == 0 ||
+          cell_(nr, nc) == 0 ||
           nuc_.coeffRef(nr, nc) == 1 ||
           from.count(next) > 0)
         continue;
@@ -547,14 +558,14 @@ void CellModel::update_smoothing_kernel() {
   }
 }
 
-const uint8_t CellModel::encode_8(SpMat_i &mat, const int r, const int c) {
+const uint8_t CellModel::encode_8(Mat_i &mat, const int r, const int c) {
   int rows = mat.rows();
   int cols = mat.cols();
   
   // Helper lambda to safely get matrix value (returns 0 for out-of-bounds)
   auto safe_get = [&](int row, int col) -> int {
     if (row >= 0 && row < rows && col >= 0 && col < cols) {
-      return mat.coeff(row, col);
+      return mat(row, col);
     }
     return 0;
   };

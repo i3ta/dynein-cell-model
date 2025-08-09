@@ -138,7 +138,7 @@ private:
   void update_smoothing_kernel();
 
   /**
-   * @brief Get the integer encoding of the 8-neighbors of a specific pixel in a sparse matrix.
+   * @brief Get the integer encoding of the 8-neighbors of a specific pixel in a matrix.
    *
    * @param mat matrix
    * @param r row
@@ -146,7 +146,7 @@ private:
    *
    * @return 8-neighbors of the specific pixel encoded into an integer.
    */
-  const uint8_t encode_8(SpMat_i &mat, const int r, const int c);
+  const uint8_t encode_8(Mat_i &mat, const int r, const int c);
 
   /**
    * @brief Determine if a specific integer configuration is valid.
@@ -264,8 +264,8 @@ private:
   double AC_cor_sum_; ///< Correct AC values after retraction and protrusion
   double IC_cor_sum_; ///< Correct IC values after retraction and protrusion
 
-  SpMat_i cell_; ///< cell mask
-  SpMat_i nuc_; ///< nucleus mask
+  Mat_i cell_; ///< cell mask
+  Mat_i nuc_; ///< nucleus mask
   SpMat_i outline_; ///< cell outline
   SpMat_i inner_outline_; ///< cell outline inner pixel
   SpMat_i outline_nuc_; ///< nucleus outline
