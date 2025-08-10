@@ -221,10 +221,6 @@ void CellModel::retract_nuc() {
    * - counting the neighbors n we instead count the empty pixels
    * - dyn_f_ values are replaced with 1 - dyn_f_
    */
-  // helper constants
-  const int DR[8] = {-1, -1, -1, 0, 0, 1, 1, 1};
-  const int DC[8] = {-1, 0, 1, -1, 1, -1, 0, 1};
-
   // calculate probability coefficients
   const double V_cor = 1.0 / (1 + std::exp(-(V_nuc_ - V0_nuc_) / T_nuc_));
   const double R = double(P_nuc_ * P_nuc_) / V_nuc_;
@@ -232,7 +228,7 @@ void CellModel::retract_nuc() {
   const double n_diag = 1.0 / std::pow(M_SQRT1_2, g_);
   const double C = 4.0 * (1.0 + n_diag);
    
-  // randomize protrude order
+  // randomize retract order
   std::vector<std::pair<int, int>> retract_coords = randomize_nonzero(inner_outline_nuc_);
 
   // protrude
@@ -256,21 +252,10 @@ void CellModel::retract_nuc() {
       nuc_(r, c) = 0;
 
       // count number of neighbors and sum up values
-      int n = 0;
-      double AC = 0.0;
-      double FC = 0.0;
-      double IC = 0.0;
-      for (int i = 0; i < 8; i++) {
-        const int nr = r + DR[i];
-        const int nc = c + DC[i]; 
-        if (nuc_(nr, nc) == 0) {
-          // neighbors of nucleus pixel should always be cell pixels
-          n++;
-          AC += AC_(nr, nc);
-          IC += IC_(nr, nc);
-          FC += FC_(nr, nc);
-        }
-      }
+      int n = 9 - nuc_.block<3, 3>(r - 1, c - 1).sum(); // number of cell pixels (non-nucleus)
+      double AC = AC_.block<3, 3>(r - 1, c - 1).sum();
+      double FC = FC_.block<3, 3>(r - 1, c - 1).sum();
+      double IC = IC_.block<3, 3>(r - 1, c - 1).sum();
 
       AC_(r, c) = AC / n;
       AC_cor_sum_ += AC_(r, c);
