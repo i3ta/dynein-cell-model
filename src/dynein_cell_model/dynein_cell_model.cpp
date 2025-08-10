@@ -284,27 +284,56 @@ void CellModel::protrude() {
   // get random visiting order
   std::vector<std::pair<int, int>> protrude_coords = randomize_nonzero(outline_);
 
-  // protrude in parallel
-  #pragma omp parallel
-  {
-    std::vector<std::pair<int, int>> to_protrude;
+  // protrude
+  for (int i = 0; i < protrude_coords.size(); i++) {
+    auto &[r, c] = protrude_coords[i];
 
-    #pragma omp for nowait
-    for (int i = 0; i < protrude_coords.size(); i++) {
-      auto &[r, c] = protrude_coords[i];
+    if (protrude_conf_.count(encode_8(cell_, r, c)) == 0) // not valid protrude configuration
+      continue;
 
-      if (protrude_conf_.count(encode_8(cell_, r, c)) == 0) // not valid protrude configuration
-        continue;
+    double w;
+    if (outline_nuc_.coeff(r, c) == 1) {
+      w = 1.0; // force push if nucleus is against edge of cell
+    } else {
+      double n = 
+        n_diag * (cell_(r - 1, c - 1) + cell_(r + 1, c - 1) + cell_(r + 1, c + 1) + cell_(r - 1, c + 1)) + 
+                  cell_(r - 1, c) + cell_(r, c - 1) + cell_(r + 1, c) + cell_(r, c + 1);
+      int N = cell_.block<3, 3>(r - 1, c - 1).sum();
+      double A_avg = A_.block<3, 3>(r - 1, c - 1).sum() / N;
+      w = std::pow(n / C, k_) * V_cor * 
+       (1.0 - act_slope_ * (1.0 - A_avg / A_max)) *
+       (adh_f_(r, c) * (adh_basal_ - 1.0) + 1.0);
+    }
 
-      double w;
-      if (outline_nuc_.coeff(r, c) == 1) {
-        w = 1.0; // force push if nucleus is against edge of cell
-      } else {
-      }
+    // try protruding cell
+    const double p = prob_dist(rng);
+    if (p < w) {
+      int N = cell_.block<3, 3>(r - 1, c - 1).sum();
+      double A_avg = A_.block<3, 3>(r - 1, c - 1).sum() / N;
+      double I_avg = I_.block<3, 3>(r - 1, c - 1).sum() / N;
+      double F_avg = F_.block<3, 3>(r - 1, c - 1).sum() / N;
+      double AC_avg = AC_.block<3, 3>(r - 1, c - 1).sum() / N;
+      double IC_avg = IC_.block<3, 3>(r - 1, c - 1).sum() / N;
+      double FC_avg = FC_.block<3, 3>(r - 1, c - 1).sum() / N;
+
+      cell_(r, c) = 1;
+      A_(r, c) = A_avg;
+      I_(r, c) = I_avg;
+      F_(r, c) = F_avg;
+      AC_(r, c) = AC_avg;
+      IC_(r, c) = IC_avg;
+      FC_(r, c) = FC_avg;
+
+      // WARN: Make sure this sum is initialized properly
+      A_cor_sum_ += A_avg;
+      I_cor_sum_ += I_avg;
+      AC_cor_sum_ += AC_avg;
+      IC_cor_sum_ += IC_avg;
     }
   }
 
   // update cell
+  update_cell();
 }
 
 void CellModel::update_nuc() {
