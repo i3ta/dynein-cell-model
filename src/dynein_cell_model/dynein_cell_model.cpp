@@ -16,16 +16,23 @@ struct pair_hash {
 };
 
 namespace dynein_cell_model {
-CellModel::CellModel() {
-  // TODO: Call update_config with default config
-  
+CellModelConfig::CellModelConfig() {
+  // TODO: Implement initialization with default values
+}
+
+CellModelConfig::CellModelConfig(std::string config_file) {
   // TODO: Implement initialization
+}
+
+CellModel::CellModel() {
+  CellModelConfig config;
+  update_config(config);
+  initialize_helpers();
 }
 
 CellModel::CellModel(CellModelConfig config) {
   update_config(config);
-  
-  // TODO: Implement initialization
+  initialize_helpers();
 }
 
 void CellModel::update_config(CellModelConfig config) {
@@ -361,6 +368,10 @@ void CellModel::protrude() {
 
 void CellModel::retract() {
   // TODO: Implement retract_nuc
+}
+
+void CellModel::initialize_helpers() {
+  // TODO: Implement initialize helpers
 }
 
 void CellModel::update_nuc() {

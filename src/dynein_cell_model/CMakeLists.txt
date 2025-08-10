@@ -1,11 +1,42 @@
 add_library(dynein_cell_model dynein_cell_model.cpp)
 
-find_package (Eigen3 3.4 REQUIRED)
-find_package(OpenMP REQUIRED)
+# Include directories
+target_include_directories(dynein_cell_model PUBLIC include)
 
+# -------- OpenMP --------
+find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
     target_link_libraries(dynein_cell_model PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
-target_include_directories(dynein_cell_model PUBLIC include)
-target_link_libraries(dynein_cell_model Eigen3::Eigen)
+# -------- Eigen3 --------
+find_package(Eigen3 3.4 QUIET)
+if(NOT Eigen3_FOUND)
+  message(STATUS "Eigen3 not found, fetching with FetchContent")
+  include(FetchContent)
+  FetchContent_Declare(
+    eigen
+    GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+    GIT_TAG 3.4.0
+  )
+  FetchContent_MakeAvailable(eigen)
+  target_link_libraries(dynein_cell_model PUBLIC eigen)
+else()
+  target_link_libraries(dynein_cell_model PUBLIC Eigen3::Eigen)
+endif()
+
+# -------- yaml-cpp --------
+find_package(yaml-cpp QUIET)
+if(NOT yaml-cpp_FOUND)
+  message(STATUS "yaml-cpp not found, fetching with FetchContent")
+  include(FetchContent)
+  FetchContent_Declare(
+    yaml-cpp
+    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+    GIT_TAG yaml-cpp-0.8.0
+  )
+  FetchContent_MakeAvailable(yaml-cpp)
+  target_link_libraries(dynein_cell_model PUBLIC yaml-cpp)
+else()
+  target_link_libraries(dynein_cell_model PUBLIC yaml-cpp)
+endif()

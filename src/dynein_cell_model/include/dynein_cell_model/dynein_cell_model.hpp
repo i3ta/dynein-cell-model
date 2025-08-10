@@ -19,9 +19,71 @@ typedef Eigen::ArrayXd Arr_d;
 
 
 class CellModelConfig {
-  // TODO: Add fields for CellModelConfig
 public:
-private:
+  /**
+   * @brief Set up config with default values
+   */
+  CellModelConfig();
+
+  /**
+   * @brief Set up config with values from config file
+   *
+   * @param config_file config file to read
+   */
+  CellModelConfig(std::string config_file);
+
+  double k_; ///< Relative contribution of geometry factor to cell protrusion/retraction probability
+  double k_nuc_; ///< controls degree of geometry constraint
+  double g_; ///< Sensitivity of geometry factor to local membrane curvature
+  double T_; ///< Parameter controlling steepness of volume factor function (sensitivity to changes in cell volume)
+  double T_nuc_; ///< controls sharpness of volume constraint
+  double act_slope_; ///< Slope of actin factor function 
+  double adh_sigma_; ///< Sigma value for gaussian smoothing of adhesion field
+  double adh_basal_; ///< Basal value for adhesion factor protrusion probability
+  double adh_frac_; ///< Fraction of adhesions that are rearranged at each adh_T  time step
+  int adh_num_; ///< number of adhesions in the cell
+  int R0_; ///< Roundness (perimeter^2/area) of a 4-connected circle
+  double R_nuc_; ///< controls sharpness of roundness constraint
+  double dyn_basal_; ///< basal weight for protrusion probability of dynein factor
+  double prop_factor_; ///< number in range [0, 1] to multiply protrusions and retraction weights to study effect of scaling
+  double dyn_norm_k_; ///< "steepness" value for smoothing dynein force values using sigmoid
+  double dyn_sigma_; ///< sigma value for gaussian smoothing of dynein force
+  int dyn_kernel_size_; ///< size of the gaussian smoothing kernel (should be odd)
+
+  // Reaction-diffusion parameters
+  double DA_; ///< Diffusion coefficient of active GTPase
+  double DI_; ///< Diffusion coefficient of inactive GTPase
+  double k0_; ///< Activation rate of GTPase
+  double k0_min_; ///< Minimum basal activation rate of GTPase
+  double k0_scalar_; ///< Effect of adhesion field on GTPase activation
+  double gamma_; ///< Rate constant of autocatalytic activation of GTPase
+  double A0_; ///< Sensitivity of positive feedback of GTPase to the concentration of active GTPase
+  double s1_; ///< Basal deactivation rate of GTPase
+  double s2_; ///< Rate constant of negative feedback from F-actin on GTPase
+  double F0_; ///< Sensitivity of negative feedback of GTPase to the concentration of F-actin
+  double kn_; ///< Rate constant of F-actin polymerization
+  double ks_; ///< Rate constant of F-actin depolymerization
+  double dt_; ///< Temporal step of finite difference scheme
+  double dx_; ///< Spatial step of finite difference scheme
+
+  // Concentration limit parameters
+  double A_max_; ///< maximal value of A
+  double A_min_; ///< minimal value of A
+  double AC_max_; ///< maximal value of AC
+  double AC_min_; ///< minimal value of AC
+  
+  // Simulation size
+  int sim_rows_; ///< Total number of rows for the simulation
+  int sim_cols_; ///< Total number of columns for the simualation
+
+  // Simulation parameters
+  int t_; ///< current time step
+  int adh_t_; ///< number of time steps per adhesion rearrangement
+  int fr_t_; ///< number of time steps per frame update
+  int save_t_; ///< number of time steps per save
+  int diff_t_; ///< time of diffusion
+  int frame_padding_; ///< distance from the cell border to the edge of the frame
+  std::string save_dir_; ///< directory to save snapshots to;
 };
 
 
@@ -106,6 +168,11 @@ public:
   void retract();
 
 private:
+  /**
+   * @brief Initialize the helper variables.
+   */
+  void initialize_helpers();
+
   /**
    * @brief Update the nucleus outlines and values.
    */
