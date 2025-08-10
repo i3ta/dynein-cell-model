@@ -32,6 +32,13 @@ public:
    */
   CellModelConfig(std::string config_file);
 
+  /**
+   * @brief Save config to file
+   *
+   * @param dest_file destination file
+   */
+  void save_file(std::string dest_file);
+
   double k_; ///< Relative contribution of geometry factor to cell protrusion/retraction probability
   double k_nuc_; ///< controls degree of geometry constraint
   double g_; ///< Sensitivity of geometry factor to local membrane curvature
@@ -107,6 +114,13 @@ public:
    * @param config CellModelConfig to use
    */
   void update_config(CellModelConfig config);
+
+  /**
+   * @brief Get all system parameters as CellModelConfig
+   *
+   * @return config object
+   */
+  const CellModelConfig get_config();
 
   /**
    * @brief Simulate the cell for dt amount of time.

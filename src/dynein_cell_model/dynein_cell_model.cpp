@@ -1,13 +1,17 @@
 #include <cmath>
-#include <deque>
-#include <stack>
+#include <iostream>
 #include <stdexcept>
 #include <algorithm>
-#include <omp.h>
-
-#include <dynein_cell_model/dynein_cell_model.hpp>
+#include <deque>
+#include <stack>
 #include <unordered_map>
 #include <unordered_set>
+
+#include <omp.h>
+#include <yaml-cpp/node/parse.h>
+#include <yaml-cpp/yaml.h>
+
+#include <dynein_cell_model/dynein_cell_model.hpp>
 
 struct pair_hash {
   std::size_t operator()(const std::pair<int, int>& p) const {
@@ -21,7 +25,12 @@ CellModelConfig::CellModelConfig() {
 }
 
 CellModelConfig::CellModelConfig(std::string config_file) {
-  // TODO: Implement initialization
+  // Load file
+  YAML::Node config = YAML::LoadFile(config_file);
+}
+
+void CellModelConfig::save_file(std::string dest_file) {
+  // TODO: Implement save file
 }
 
 CellModel::CellModel() {
@@ -36,7 +45,86 @@ CellModel::CellModel(CellModelConfig config) {
 }
 
 void CellModel::update_config(CellModelConfig config) {
-  // TODO: Impelement update config
+  k_ = config.k_;
+  k_nuc_ = config.k_nuc_;
+  g_ = config.g_;
+  T_ = config.T_;
+  T_nuc_ = config.T_nuc_;
+  act_slope_ = config.act_slope_;
+  adh_sigma_ = config.adh_sigma_;
+  adh_basal_ = config.adh_basal_;
+  adh_frac_ = config.adh_frac_;
+  adh_num_ = config.adh_num_;
+  R0_ = config.R0_;
+  R_nuc_ = config.R_nuc_;
+  dyn_basal_ = config.dyn_basal_;
+  prop_factor_ = config.prop_factor_;
+  dyn_norm_k_ = config.dyn_norm_k_;
+  dyn_sigma_ = config.dyn_sigma_;
+  dyn_kernel_size_ = config.dyn_kernel_size_;
+  DA_ = config.DA_;
+  DI_ = config.DI_;
+  k0_ = config.k0_;
+  k0_min_ = config.k0_min_;
+  k0_scalar_ = config.k0_scalar_;
+  gamma_ = config.gamma_;
+  A0_ = config.A0_;
+  s1_ = config.s1_;
+  s2_ = config.s2_;
+  F0_ = config.F0_;
+  kn_ = config.kn_;
+  ks_ = config.ks_;
+  dt_ = config.dt_;
+  dx_ = config.dx_;
+  A_max_ = config.A_max_;
+  A_min_ = config.A_min_;
+  AC_max_ = config.AC_max_;
+  AC_min_ = config.AC_min_;
+  sim_rows_ = config.sim_rows_;
+  sim_cols_ = config.sim_cols_;
+}
+
+const CellModelConfig CellModel::get_config() {
+  CellModelConfig config;
+  config.k_ = k_;
+  config.k_nuc_ = k_nuc_;
+  config.g_ = g_;
+  config.T_ = T_;
+  config.T_nuc_ = T_nuc_;
+  config.act_slope_ = act_slope_;
+  config.adh_sigma_ = adh_sigma_;
+  config.adh_basal_ = adh_basal_;
+  config.adh_frac_ = adh_frac_;
+  config.adh_num_ = adh_num_;
+  config.R0_ = R0_;
+  config.R_nuc_ = R_nuc_;
+  config.dyn_basal_ = dyn_basal_;
+  config.prop_factor_ = prop_factor_;
+  config.dyn_norm_k_ = dyn_norm_k_;
+  config.dyn_sigma_ = dyn_sigma_;
+  config.dyn_kernel_size_ = dyn_kernel_size_;
+  config.DA_ = DA_;
+  config.DI_ = DI_;
+  config.k0_ = k0_;
+  config.k0_min_ = k0_min_;
+  config.k0_scalar_ = k0_scalar_;
+  config.gamma_ = gamma_;
+  config.A0_ = A0_;
+  config.s1_ = s1_;
+  config.s2_ = s2_;
+  config.F0_ = F0_;
+  config.kn_ = kn_;
+  config.ks_ = ks_;
+  config.dt_ = dt_;
+  config.dx_ = dx_;
+  config.A_max_ = A_max_;
+  config.A_min_ = A_min_;
+  config.AC_max_ = AC_max_;
+  config.AC_min_ = AC_min_;
+  config.sim_rows_ = sim_rows_;
+  config.sim_cols_ = sim_cols_;
+
+  return config;
 }
 
 void CellModel::simulate(double dt) {
@@ -217,7 +305,7 @@ void CellModel::protrude_nuc() {
       n_diag * (nuc_(r - 1, c - 1) + nuc_(r + 1, c - 1) + nuc_(r + 1, c + 1) + nuc_(r - 1, c + 1)) +
                 nuc_(r - 1, c) + nuc_(r, c - 1) + nuc_(r + 1, c) + nuc_(r, c + 1);
     const double w = std::pow(n / C, k_nuc_) * R_cor * V_cor * 
-      (dyn_basal_ + (1 - dyn_basal_) * dyn_f_(r, c));
+      (dyn_basal_ + (1 - dyn_basal_) * get_smoothed_dyn_f(r, c));
 
     // try protruding to this pixel
     const double p = prob_dist(rng);
@@ -267,7 +355,7 @@ void CellModel::retract_nuc() {
       n_diag * (!nuc_(r - 1, c - 1) + !nuc_(r + 1, c - 1) + !nuc_(r + 1, c + 1) + !nuc_(r - 1, c + 1)) +
                 !nuc_(r - 1, c) + !nuc_(r, c - 1) + !nuc_(r + 1, c) + !nuc_(r, c + 1);
     const double w = std::pow(n / C, k_nuc_) * R_cor * V_cor * 
-      (dyn_basal_ + (1 - dyn_basal_) * (1 - dyn_f_(r, c))); // Inverted from protrusion
+      (dyn_basal_ + (1 - dyn_basal_) * (1 - get_smoothed_dyn_f(r, c))); // Inverted from protrusion
 
     // try retracting this pixel
     const double p = prob_dist(rng);
@@ -367,7 +455,61 @@ void CellModel::protrude() {
 }
 
 void CellModel::retract() {
-  // TODO: Implement retract_nuc
+  /**
+   * This function retracts pixels of the cell and is essentially the opposite
+   * logic to the protrude() function. Note that higher adh_f_ results in
+   */
+
+  // get probability coefficients
+  const double V_cor = 1 / (1 + std::exp(-(V_ - V0_) / T_));
+  const double A_max = A_.block(frame_row_start_, frame_col_start_, 
+                                frame_row_end_ - frame_row_start_ + 1, 
+                                frame_col_end_ - frame_col_start_ + 1).maxCoeff();
+  const double AC_max = AC_.block(frame_row_start_, frame_col_start_, 
+                                  frame_row_end_ - frame_row_start_ + 1, 
+                                  frame_col_end_ - frame_col_start_ + 1).maxCoeff();
+  const double n_diag = 1.0 / std::pow(M_SQRT1_2, g_);
+  const double C = 4.0 * (1.0 + n_diag);
+
+  // get random visiting order
+  std::vector<std::pair<int, int>> retract_coords = randomize_nonzero(inner_outline_);
+
+  // retract
+  for (int i = 0; i < retract_coords.size(); i++) {
+    auto &[r, c] = retract_coords[i];
+
+    if (retract_conf_.count(encode_8(cell_, r, c)) == 0) // not valid protrude configuration
+      continue;
+
+    double n = 
+      n_diag * (!cell_(r - 1, c - 1) + !cell_(r + 1, c - 1) + !cell_(r + 1, c + 1) + !cell_(r - 1, c + 1)) + 
+                !cell_(r - 1, c) + !cell_(r, c - 1) + !cell_(r + 1, c) + !cell_(r, c + 1);
+    int N = cell_.block<3, 3>(r - 1, c - 1).sum();
+    double A_avg = A_.block<3, 3>(r - 1, c - 1).sum() / N;
+    double w = std::pow(n / C, k_) * V_cor * 
+     (1.0 - act_slope_ * A_avg / A_max) * adh_f_(r, c);
+
+    // try retracting pixel
+    const double p = prob_dist(rng);
+    if (p < w) {
+      cell_(r, c) = 0;
+      // WARN: Make sure this sum is initialized properly
+      A_cor_sum_ -= A_(r, c);
+      I_cor_sum_ -= I_(r, c);
+      AC_cor_sum_ -= AC_(r, c);
+      IC_cor_sum_ -= IC_(r, c);
+
+      A_(r, c) = 0;
+      I_(r, c) = 0;
+      F_(r, c) = 0;
+      AC_(r, c) = 0;
+      IC_(r, c) = 0;
+      FC_(r, c) = 0;
+    }
+  }
+
+  // update cell
+  update_cell();
 }
 
 void CellModel::initialize_helpers() {
