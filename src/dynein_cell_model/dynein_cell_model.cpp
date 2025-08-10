@@ -270,6 +270,13 @@ void CellModel::retract_nuc() {
 }
 
 void CellModel::protrude() {
+  /**
+   * This function attempts to protrude the cell. The logic of this function is
+   * very similar to that of protrude_nuc, but the weight function is slightly
+   * different and the values used are relative to the actin factor as opposed to
+   * dynein factor.
+   */
+
   // get probability coefficients
   const double V_cor = 1 / (1 + std::exp((V_ - V0_) / T_));
   const double A_max = A_.block(frame_row_start_, frame_col_start_, 
@@ -384,6 +391,56 @@ void CellModel::update_nuc() {
   // update nucleus volume and perimeter
   V_nuc_ = nuc_.nonZeros();
   P_nuc_ = inner_outline_nuc_.nonZeros();
+}
+
+void CellModel::update_cell() {
+  /**
+   * Iterate through cell pixels and add 4-neighbors that are not part of the
+   * cell to outer outline.
+   */
+  const int DR[4] = {-1, 1, 0, 0};
+  const int DC[4] = {0, 0, -1, 1};
+
+  // Clear outlines
+  outline_.setZero();
+  inner_outline_.setZero();
+
+  #pragma omp parallel
+  {
+    std::unordered_set<std::pair<int, int>, pair_hash> local_inner, local_outer;
+
+    // Iterate through cell pixels
+    #pragma omp for nowait
+    for (int j = frame_col_start_; j <= frame_col_end_; j++) {
+      for (int i = frame_row_start_; i <= frame_row_end_; i++) {
+        bool outline = false;
+        for (int k = 0; k < 4; k++) {
+          const int nr = i + DR[k];
+          const int nc = j + DC[k];
+          if (nr < 0 || nr >= sim_rows_ || nc < 0 || nc >= sim_cols_) continue;
+          if (cell_(nr, nc) == 0) {
+            local_inner.insert({i, j});
+            local_outer.insert({nr, nc});
+          }
+        }
+      }
+    }
+
+    // update outlines
+    #pragma omp critical
+    {
+      for (auto &[r, c]: local_inner) {
+        inner_outline_.coeffRef(r, c) = 1;
+      }
+      for (auto &[r, c]: local_outer) {
+        outline_.coeffRef(r, c) = 1;
+      }
+    }
+  }
+
+  // update cell volume and perimeter
+  V_ = cell_.nonZeros();
+  P_ = inner_outline_.nonZeros();
 }
 
 void CellModel::update_dyn_nuc_field() {
