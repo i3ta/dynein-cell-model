@@ -17,7 +17,19 @@ struct pair_hash {
 
 namespace dynein_cell_model {
 CellModel::CellModel() {
-  // Initialize adhesions
+  // TODO: Call update_config with default config
+  
+  // TODO: Implement initialization
+}
+
+CellModel::CellModel(CellModelConfig config) {
+  update_config(config);
+  
+  // TODO: Implement initialization
+}
+
+void CellModel::update_config(CellModelConfig config) {
+  // TODO: Impelement update config
 }
 
 void CellModel::simulate(double dt) {
@@ -55,6 +67,10 @@ void CellModel::step() {
   }
 
   t_++;
+}
+
+void CellModel::save_state(std::string dirname) {
+  // TODO: Implement save_state
 }
 
 void CellModel::rearrange_adhesions() {
@@ -343,6 +359,10 @@ void CellModel::protrude() {
   update_cell();
 }
 
+void CellModel::retract() {
+  // TODO: Implement retract_nuc
+}
+
 void CellModel::update_nuc() {
   /**
    * Iterate through nucleus pixels and add 4-neighbors that are not nucleus to
@@ -441,6 +461,14 @@ void CellModel::update_cell() {
   // update cell volume and perimeter
   V_ = cell_.nonZeros();
   P_ = inner_outline_.nonZeros();
+}
+
+void CellModel::update_concentrations() {
+  // TODO: Implement update_concentrations
+}
+
+void CellModel::diffuse_k0_adh() {
+  // TODO: Implement diffuse_k0_adh
 }
 
 void CellModel::update_dyn_nuc_field() {

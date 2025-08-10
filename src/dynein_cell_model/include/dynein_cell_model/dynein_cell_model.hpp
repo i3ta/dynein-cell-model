@@ -18,6 +18,13 @@ typedef Eigen::VectorXd Vec_d;
 typedef Eigen::ArrayXd Arr_d;
 
 
+class CellModelConfig {
+  // TODO: Add fields for CellModelConfig
+public:
+private:
+};
+
+
 class CellModel {
 public:
   /**
@@ -30,7 +37,14 @@ public:
    *
    * @param filename Name of the config file to read parameters from.
    */
-  CellModel(std::string filename);
+  CellModel(CellModelConfig config);
+
+  /**
+   * @brief Update all config parameters of the model
+   *
+   * @param config CellModelConfig to use
+   */
+  void update_config(CellModelConfig config);
 
   /**
    * @brief Simulate the cell for dt amount of time.
