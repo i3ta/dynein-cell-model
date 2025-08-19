@@ -153,7 +153,7 @@ void CellModel::step() {
   protrude();
   retract();
 
-  update_concentrations();
+  correct_concentrations();
   diffuse_k0_adh();
   update_dyn_nuc_field();
 
@@ -616,8 +616,31 @@ void CellModel::update_cell() {
   P_ = inner_outline_.nonZeros();
 }
 
-void CellModel::update_concentrations() {
-  // TODO: Implement update_concentrations
+void CellModel::correct_concentrations() {
+  // Calculate amount of signal that needs to be distributed from all pixels
+  const double A_dist = A_cor_sum_ / V_;
+  const double I_dist = I_cor_sum_ / V_;
+  const double AC_dist = AC_cor_sum_ / (V_ - V0_nuc_);
+  const double IC_dist = IC_cor_sum_ / (V_ - V0_nuc_);
+
+  #pragma omp parallel for collapse(2)
+  for (int j = frame_col_start_; j <= frame_col_end_; j++) {
+    for (int i = frame_row_start_; j <= frame_row_end_; j++) {
+      if (cell_(i, j) == 1) {
+        A_(i, j) -= A_dist;
+        I_(i, j) -= I_dist;
+      }
+      if (cell_(i, j) == 1 && nuc_(i, j) == 0) {
+        AC_(i, j) -= A_dist;
+        IC_(i, j) -= IC_dist;
+      }
+    }
+  }
+
+  A_cor_sum_ = 0;
+  I_cor_sum_ = 0;
+  AC_cor_sum_ = 0;
+  IC_cor_sum_ = 0;
 }
 
 void CellModel::diffuse_k0_adh() {

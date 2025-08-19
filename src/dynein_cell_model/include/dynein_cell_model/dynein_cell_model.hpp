@@ -198,9 +198,9 @@ private:
   void update_cell();
 
   /**
-    * @brief Update the concentrations of cell signals for each pixel.
+    * @brief Correct the concentrations of cell signals for each pixel so the total A and I remains constant.
     */
-  void update_concentrations();
+  void correct_concentrations();
 
   /**
     * @brief Diffuse k0_adh over the cell.
