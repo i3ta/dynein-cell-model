@@ -312,12 +312,14 @@ private:
   double k0_min_; ///< Minimum basal activation rate of GTPase
   double k0_scalar_; ///< Effect of adhesion field on GTPase activation
   double gamma_; ///< Rate constant of autocatalytic activation of GTPase
+  double delta_; ///<
   double A0_; ///< Sensitivity of positive feedback of GTPase to the concentration of active GTPase
   double s1_; ///< Basal deactivation rate of GTPase
   double s2_; ///< Rate constant of negative feedback from F-actin on GTPase
   double F0_; ///< Sensitivity of negative feedback of GTPase to the concentration of F-actin
   double kn_; ///< Rate constant of F-actin polymerization
   double ks_; ///< Rate constant of F-actin depolymerization
+  double eps_; ///<
   double dt_; ///< Temporal step of finite difference scheme
   double dx_; ///< Spatial step of finite difference scheme
 

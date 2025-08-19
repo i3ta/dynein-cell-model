@@ -82,6 +82,9 @@ void CellModel::update_config(CellModelConfig config) {
   AC_min_ = config.AC_min_;
   sim_rows_ = config.sim_rows_;
   sim_cols_ = config.sim_cols_;
+
+  // update variables that depend on config
+  initialize_helpers();
 }
 
 const CellModelConfig CellModel::get_config() {
@@ -514,6 +517,18 @@ void CellModel::retract() {
 
 void CellModel::initialize_helpers() {
   // TODO: Implement initialize helpers
+  
+  // Initialize correction variables
+  A_cor_sum_ = 0;
+  I_cor_sum_ = 0;
+  AC_cor_sum_ = 0;
+  IC_cor_sum_ = 0;
+
+  // Get values for Gaussian smoothing kernel
+  update_smoothing_kernel();
+
+  // Get valid configurations
+  update_valid_conf();
 }
 
 void CellModel::update_nuc() {
@@ -644,7 +659,82 @@ void CellModel::correct_concentrations() {
 }
 
 void CellModel::diffuse_k0_adh() {
-  // TODO: Implement diffuse_k0_adh
+  double s2C = 0.05; // NOTE: what is this?
+  double A0_3 = std::pow(A0_, 3);
+  double dx_2 = dx_ * dx_;
+  
+  // temporary variables for update
+  Mat_i A_new(sim_rows_, sim_cols_);
+  Mat_i I_new(sim_rows_, sim_cols_);
+  Mat_i F_new(sim_rows_, sim_cols_);
+  Mat_i AC_new(sim_rows_, sim_cols_);
+  Mat_i IC_new(sim_rows_, sim_cols_);
+  Mat_i FC_new(sim_rows_, sim_cols_);
+
+  for (int k = 0; k < diff_t_; k++) {
+    #pragma omp parallel for collapse(2)
+    for (int j = frame_col_start_; j <= frame_col_end_; j++) {
+      for (int i = frame_row_start_; i <= frame_col_end_; i++) {
+        if (cell_(i, j)) {
+          double A_3 = std::pow(A_(i, j), 3);
+          double f = (k0_adh_(i, j) + gamma_ * A_3 / (A0_3 + A_3)) * I_(i, j)
+            - delta_ * (s1_ + s2_ * F_(i, j) / (F0_ + F_(i, j))) * A_(i, j);
+          double h = eps_ * (kn_ * A_(i, j) - ks_ * F_(i, j));
+
+          A_new(i, j) = A_(i, j) + dt_ * (
+            f + DA_ / dx_2 * (
+              cell_(i + 1, j) * (A_(i + 1, j) - A_(i, j)) 
+            - cell_(i - 1, j) * (A_(i, j) - A_(i - 1, j)) 
+            + cell_(i, j + 1) * (A_(i, j + 1) - A_(i, j)) 
+            - cell_(i, j - 1) * (A_(i, j) - A_(i, j - 1))
+            )
+          );
+          I_new(i, j) = I_(i, j) + dt_ * (
+            -f + DI_ / dx_2 * (
+              cell_(i + 1, j) * (I_(i + 1, j) - I_(i, j)) 
+            - cell_(i - 1, j) * (I_(i, j) - I_(i - 1, j)) 
+            + cell_(i, j + 1) * (I_(i, j + 1) - I_(i, j)) 
+            - cell_(i, j - 1) * (I_(i, j - 1) - I_(i, j))
+            )
+          );
+          F_new(i, j) = F_(i, j) + h * dt_;
+        }
+
+        if (cell_(i, j) == 1 && nuc_(i, j) == 0) {
+          double AC_3 = std::pow(AC_(i, j), 3);
+          double fC = (k0_ + gamma_ * AC_3 / (A0_3 + AC_3)) * IC_(i, j)
+            - delta_ * (s1_ + s2C * FC_(i, j) / (F0_ + FC_(i, j))) * AC_(i, j);
+          double hC = eps_ * (kn_ * AC_(i, j) - ks_ * FC_(i, j));
+
+          AC_new(i, j) = AC_(i, j) + dt_ * (
+            fC + DA_ / dx_2 * (
+              (cell_(i + 1, j) - nuc_(i + 1, j)) * (AC_(i + 1, j) - AC_(i, j)) 
+            - (cell_(i - 1, j) - nuc_(i - 1, j)) * (AC_(i, j) - AC_(i - 1, j))
+            + (cell_(i, j + 1) - nuc_(i, j + 1)) * (AC_(i, j + 1) - AC_(i, j))
+            - (cell_(i, j - 1) - nuc_(i, j - 1)) * (AC_(i, j) - AC_(i, j - 1))
+            )
+          );
+          IC_new(i, j) = IC_(i, j) + dt_ * (
+            -fC + DI_ / dx_2 * (
+              (cell_(i + 1, j) - nuc_(i + 1, j)) * (IC_(i + 1, j) - IC_(i, j)) 
+            - (cell_(i - 1, j) - nuc_(i - 1, j)) * (IC_(i, j) - IC_(i - 1, j))
+            + (cell_(i, j + 1) - nuc_(i, j + 1)) * (IC_(i, j + 1) - IC_(i, j))
+            - (cell_(i, j - 1) - nuc_(i, j - 1)) * (IC_(i, j) - IC_(i, j - 1))
+            )
+          );
+          FC_new(i, j) = FC_(i, j) + hC * dt_;
+        }
+      }
+    }
+
+    // replace elements
+    A_ = A_new;
+    I_ = I_new;
+    F_ = F_new;
+    AC_ = AC_new;
+    IC_ = IC_new;
+    FC_ = FC_new;
+  }
 }
 
 void CellModel::update_dyn_nuc_field() {
