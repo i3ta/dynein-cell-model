@@ -8,6 +8,8 @@
 #include <unordered_set>
 
 #include <omp.h>
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <yaml-cpp/node/parse.h>
 #include <yaml-cpp/yaml.h>
 
@@ -20,17 +22,99 @@ struct pair_hash {
 };
 
 namespace dynein_cell_model {
+Mat_i matrix_from_mask(std::string filepath, cv::Vec3b color) {
+  cv::Mat image = cv::imread(filepath, cv::IMREAD_COLOR);
+  if (image.empty()) {
+    throw std::invalid_argument("Could not load the image at: " + filepath);
+  }
+
+  Mat_i mat(image.rows, image.cols);
+
+  for (int c = 0; c < image.cols; c++) {
+    for (int r = 0; r < image.rows; r++) {
+      if (image.at<cv::Vec3b>() == color) {
+        mat(r, c) = 1;
+      }
+    }
+  }
+
+  return mat;
+}
+
 CellModelConfig::CellModelConfig() {
-  // TODO: Implement initialization with default values
+  k0_ = 0.10;
+  k0_scalar_ = 10;
+  k_ = 1.6;
+  T_ = 500;
+  k_nuc_ = 4;
+  T_nuc_ = 1;
+  R_nuc_ = 1;
+  R0_ = 20;
+  dyn_basal_ = 0.9;
+  s1_ = 0.7;
+  s2_ = 0.2;
+  diff_t_ = 100;
+  dt_ = 3.75e-4;
+  dx_ = 7.0755e-3;
+  act_slope_ = 0.03;
+  adh_num_ = 50;
+  adh_frac_ = 0.03;
+  adh_sigma_ = 5;
+  frame_padding_ = 20;
+  save_t_ = 1000;
+  adh_t_ = 200;
+  fr_t_ = 50;
+  adh_basal_ = 0.3;
 }
 
 CellModelConfig::CellModelConfig(std::string config_file) {
   // Load file
   YAML::Node config = YAML::LoadFile(config_file);
+
+  // Read config
+  k_ = config["k"].as<double>();
+  k_nuc_ = config["k_nuc"].as<double>();
+  g_ = config["g"].as<double>();
+  T_ = config["T"].as<double>();
+  T_nuc_ = config["T_nuc"].as<double>();
+  act_slope_ = config["act_slope"].as<double>();
+  adh_sigma_ = config["adh_sigma"].as<double>();
+  adh_basal_ = config["adh_basal"].as<double>();
+  adh_frac_ = config["adh_frac"].as<double>();
+  adh_num_ = config["adh_num"].as<int>();
+  R0_ = config["R0"].as<int>();
+  R_nuc_ = config["R_nuc"].as<double>();
+  dyn_basal_ = config["dyn_basal"].as<double>();
+  prop_factor_ = config["prop_factor"].as<double>();
+  dyn_norm_k_ = config["dyn_norm_k"].as<double>();
+  dyn_sigma_ = config["dyn_sigma"].as<double>();
+  dyn_kernel_size_ = config["dyn_kernel_size"].as<int>();
+  DA_ = config["DA"].as<double>();
+  DI_ = config["DI"].as<double>();
+  k0_ = config["k0"].as<double>();
+  k0_min_ = config["k0_min"].as<double>();
+  k0_scalar_ = config["k0_scalar"].as<double>();
+  gamma_ = config["gamma"].as<double>();
+  delta_ = config["delta"].as<double>();
+  A0_ = config["A0"].as<double>();
+  s1_ = config["s1"].as<double>();
+  s2_ = config["s2"].as<double>();
+  F0_ = config["F0"].as<double>();
+  kn_ = config["kn"].as<double>();
+  ks_ = config["ks"].as<double>();
+  eps_ = config["eps"].as<double>();
+  dt_ = config["dt"].as<double>();
+  dx_ = config["dx"].as<double>();
+  A_max_ = config["A_max"].as<double>();
+  A_min_ = config["A_min"].as<double>();
+  AC_max_ = config["AC_max"].as<double>();
+  AC_min_ = config["AC_min"].as<double>();
+  sim_rows_ = config["sim_rows"].as<int>();
+  sim_cols_ = config["sim_cols"].as<int>();
 }
 
 void CellModelConfig::save_file(std::string dest_file) {
-  // TODO: Implement save file
+  // TODO: Implement save to file
 }
 
 CellModel::CellModel() {
@@ -68,12 +152,14 @@ void CellModel::update_config(CellModelConfig config) {
   k0_min_ = config.k0_min_;
   k0_scalar_ = config.k0_scalar_;
   gamma_ = config.gamma_;
+  delta_ = config.delta_;
   A0_ = config.A0_;
   s1_ = config.s1_;
   s2_ = config.s2_;
   F0_ = config.F0_;
   kn_ = config.kn_;
   ks_ = config.ks_;
+  eps_ = config.eps_;
   dt_ = config.dt_;
   dx_ = config.dx_;
   A_max_ = config.A_max_;
@@ -640,7 +726,7 @@ void CellModel::correct_concentrations() {
 
   #pragma omp parallel for collapse(2)
   for (int j = frame_col_start_; j <= frame_col_end_; j++) {
-    for (int i = frame_row_start_; j <= frame_row_end_; j++) {
+    for (int i = frame_row_start_; i <= frame_row_end_; i++) {
       if (cell_(i, j) == 1) {
         A_(i, j) -= A_dist;
         I_(i, j) -= I_dist;
@@ -664,12 +750,12 @@ void CellModel::diffuse_k0_adh() {
   double dx_2 = dx_ * dx_;
   
   // temporary variables for update
-  Mat_i A_new(sim_rows_, sim_cols_);
-  Mat_i I_new(sim_rows_, sim_cols_);
-  Mat_i F_new(sim_rows_, sim_cols_);
-  Mat_i AC_new(sim_rows_, sim_cols_);
-  Mat_i IC_new(sim_rows_, sim_cols_);
-  Mat_i FC_new(sim_rows_, sim_cols_);
+  Mat_d A_new(sim_rows_, sim_cols_);
+  Mat_d I_new(sim_rows_, sim_cols_);
+  Mat_d F_new(sim_rows_, sim_cols_);
+  Mat_d AC_new(sim_rows_, sim_cols_);
+  Mat_d IC_new(sim_rows_, sim_cols_);
+  Mat_d FC_new(sim_rows_, sim_cols_);
 
   for (int k = 0; k < diff_t_; k++) {
     #pragma omp parallel for collapse(2)

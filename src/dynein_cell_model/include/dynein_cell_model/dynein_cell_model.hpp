@@ -6,6 +6,7 @@
 #include <vector>
 #include <random>
 
+#include <opencv2/core.hpp>
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 
@@ -16,6 +17,17 @@ typedef Eigen::MatrixXi Mat_i;
 typedef Eigen::SparseMatrix<int> SpMat_i;
 typedef Eigen::VectorXd Vec_d;
 typedef Eigen::ArrayXd Arr_d;
+
+
+/**
+ * @brief Create a matrix mask from a png image
+ *
+ * @param filepath path of image to get matrix mask from
+ * @param color color to mask as 1, all other colors are 0
+ *
+ * @return boolean matrix marking where the image has the specified color
+ */
+Mat_i matrix_from_mask(std::string filepath, cv::Vec3b color);
 
 
 class CellModelConfig {
@@ -64,12 +76,14 @@ public:
   double k0_min_; ///< Minimum basal activation rate of GTPase
   double k0_scalar_; ///< Effect of adhesion field on GTPase activation
   double gamma_; ///< Rate constant of autocatalytic activation of GTPase
+  double delta_; ///<
   double A0_; ///< Sensitivity of positive feedback of GTPase to the concentration of active GTPase
   double s1_; ///< Basal deactivation rate of GTPase
   double s2_; ///< Rate constant of negative feedback from F-actin on GTPase
   double F0_; ///< Sensitivity of negative feedback of GTPase to the concentration of F-actin
   double kn_; ///< Rate constant of F-actin polymerization
   double ks_; ///< Rate constant of F-actin depolymerization
+  double eps_; ///<
   double dt_; ///< Temporal step of finite difference scheme
   double dx_; ///< Spatial step of finite difference scheme
 

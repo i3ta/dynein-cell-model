@@ -40,3 +40,10 @@ if(NOT yaml-cpp_FOUND)
 else()
   target_link_libraries(dynein_cell_model PUBLIC yaml-cpp)
 endif()
+
+# -------- OpenCV --------
+find_package(OpenCV REQUIRED)
+message(STATUS "OpenCV version: ${OpenCV_VERSION}")
+message(STATUS "OpenCV include path: ${OpenCV_INCLUDE_DIRS}")
+target_include_directories(dynein_cell_model PUBLIC ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(dynein_cell_model PRIVATE ${OpenCV_LIBS})
