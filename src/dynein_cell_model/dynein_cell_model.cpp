@@ -1,6 +1,8 @@
+#include "highfive/H5DataSet.hpp"
+#include "highfive/H5DataSpace.hpp"
+#include "highfive/H5PropertyList.hpp"
 #include <cmath>
 #include <fstream>
-#include <iostream>
 #include <stdexcept>
 #include <algorithm>
 #include <deque>
@@ -14,6 +16,7 @@
 #include <yaml-cpp/node/node.h>
 #include <yaml-cpp/node/parse.h>
 #include <yaml-cpp/yaml.h>
+#include <highfive/H5File.hpp>
 
 #include <dynein_cell_model/dynein_cell_model.hpp>
 
@@ -291,14 +294,35 @@ void CellModel::step() {
   update_dyn_nuc_field();
 
   if (t_ % save_t_ == 0) {
-    save_state(save_dir_);
+    save_state();
   }
 
   t_++;
 }
 
-void CellModel::save_state(std::string dirname) {
-  // TODO: Implement save_state
+void CellModel::set_output(const std::string filepath) {
+  output_file_ = filepath;
+}
+
+void CellModel::save_state() {
+  if (output_file_ == "") {
+    throw std::runtime_error("Output file must be set (using cellModel.set_output()) before the state of the cell can be saved.");
+  }
+
+  // Open file
+  HighFive::File file(output_file_, HighFive::File::ReadWrite | HighFive::File::Create | HighFive::File::Truncate);
+
+  // Append current time step (assuming all previous time steps have correct data)
+  append_dataset(file, "t", t_);
+
+  // Append data
+  append_dataset(file, "cell", cell_);
+  append_dataset(file, "nuc", nuc_);
+  append_dataset(file, "A", A_);
+  append_dataset(file, "I", I_);
+  append_dataset(file, "AC", AC_);
+  append_dataset(file, "IC", IC_);
+  append_dataset(file, "adh", adh_);
 }
 
 void CellModel::rearrange_adhesions() {
@@ -679,8 +703,8 @@ void CellModel::update_nuc() {
 
     // Iterate through nucleus pixels
     #pragma omp for nowait
-    for (int j = frame_col_start_; j <= frame_col_end_; j++) {
-      for (int i = frame_row_start_; i <= frame_row_end_; i++) {
+    for (int i = frame_row_start_; i <= frame_row_end_; i++) {
+      for (int j = frame_col_start_; j <= frame_col_end_; j++) {
         bool outline = false;
         for (int k = 0; k < 4; k++) {
           const int nr = i + DR[k];
@@ -729,8 +753,8 @@ void CellModel::update_cell() {
 
     // Iterate through cell pixels
     #pragma omp for nowait
-    for (int j = frame_col_start_; j <= frame_col_end_; j++) {
-      for (int i = frame_row_start_; i <= frame_row_end_; i++) {
+    for (int i = frame_row_start_; i <= frame_row_end_; i++) {
+      for (int j = frame_col_start_; j <= frame_col_end_; j++) {
         bool outline = false;
         for (int k = 0; k < 4; k++) {
           const int nr = i + DR[k];
@@ -803,8 +827,8 @@ void CellModel::diffuse_k0_adh() {
 
   for (int k = 0; k < diff_t_; k++) {
     #pragma omp parallel for collapse(2)
-    for (int j = frame_col_start_; j <= frame_col_end_; j++) {
-      for (int i = frame_row_start_; i <= frame_col_end_; i++) {
+    for (int i = frame_row_start_; i <= frame_col_end_; i++) {
+      for (int j = frame_col_start_; j <= frame_col_end_; j++) {
         if (cell_(i, j)) {
           double A_3 = std::pow(A_(i, j), 3);
           double f = (k0_adh_(i, j) + gamma_ * A_3 / (A0_3 + A_3)) * I_(i, j)
@@ -1153,6 +1177,71 @@ const std::vector<std::pair<int, int>> CellModel::randomize_nonzero(const SpMat_
   std::shuffle(coords.begin(), coords.end(), rng);
 
   return coords;
+}
+
+void CellModel::append_dataset(HighFive::File &file, const std::string& dataset, int v) {
+  // Create dataset if it does not exist
+  if (!file.exist(dataset)) {
+    std::vector<size_t> dims = {0};
+    std::vector<size_t> max_dims = {HighFive::DataSpace::UNLIMITED};
+
+    HighFive::DataSpace dataspace(dims, max_dims);
+    HighFive::DataSetCreateProps props;
+    props.add(HighFive::Chunking({1}));
+
+    file.createDataSet<int>(dataset, dataspace, props);
+  }
+
+  // Open dataset
+  HighFive::DataSet dset = file.getDataSet(dataset);
+
+  // Get current dimensions
+  std::vector<size_t> dims = dset.getSpace().getDimensions();
+  if (dims.size() != 1) {
+    throw std::runtime_error("Dataset is not 1D as expected.");
+  }
+
+  size_t next_t = dims[0];
+
+  // Extend dataset by 1
+  dset.resize({next_t + 1});
+  dset.select({next_t}, {1}).write(&v);
+}
+
+template <typename T>
+void append_dataset(HighFive::File &file, const std::string& dataset, Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> &mat) {
+  // Create dataset if it does not exist
+  if (!file.exist(dataset)) {
+    std::vector<size_t> dims = {0, (size_t)mat.rows(), (size_t)mat.cols()};
+    std::vector<size_t> max_dims = {HighFive::DataSpace::UNLIMITED, (size_t)mat.rows(), (size_t)mat.cols()};
+
+    HighFive::DataSpace dataspace(dims, max_dims);
+    HighFive::DataSetCreateProps props;
+    props.add(HighFive::Chunking({1, (size_t)mat.rows(), (size_t)mat.cols()}));
+
+    file.createDataSet<int>(dataset, dataspace, props);
+  }
+
+  // Open dataset
+  HighFive::DataSet dset = file.getDataSet(dataset);
+
+  // Get current dimensions
+  std::vector<size_t> dims = dset.getSpace().getDimensions();
+  if (dims.size() != 3 || dims[1] != (size_t)mat.rows() || dims[2] != (size_t)mat.cols()) {
+    throw std::runtime_error("Dataset does not have expected dimensions.");
+  }
+
+  size_t next_t = dims[0];
+
+  // Extend dataset by 1
+  dset.resize({next_t + 1, dims[1], dims[2]});
+  dset.select({next_t, 0, 0}, {1, dims[1], dims[2]}).write(mat.data());
+}
+
+void CellModel::append_dataset(HighFive::File &file, const std::string& dataset, SpMat_i &mat) {
+  // Convert to dense and save
+  Mat_i dense = mat;
+  append_dataset(file, dataset, dense);
 }
 
 } // dynein_cell_model namespace

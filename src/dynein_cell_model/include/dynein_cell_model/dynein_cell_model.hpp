@@ -9,11 +9,12 @@
 #include <opencv2/core.hpp>
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
+#include <highfive/H5File.hpp>
 
 namespace dynein_cell_model {
 
-typedef Eigen::MatrixXd Mat_d;
-typedef Eigen::MatrixXi Mat_i;
+typedef Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Mat_d;
+typedef Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Mat_i;
 typedef Eigen::SparseMatrix<int> SpMat_i;
 typedef Eigen::VectorXd Vec_d;
 typedef Eigen::ArrayXd Arr_d;
@@ -156,17 +157,22 @@ public:
   void step();
 
   /**
-    * @brief Save the current state of the cell to a file.
-    *
-    * @param dirname Name of the folder to save the state of the cell to.
-    */
-  void save_state(std::string dirname);
+   * @brief Set the file to save outputs to.
+   *
+   * @param filepath Path of the file to save the state of the cell to.
+   */
+  void set_output(const std::string filepath);
 
   /**
-    * @brief Rearrange the adhesion points around the cell to simulate evolution
-    * of cell adhesions. Randomly picks adh_frac of the adhesions and finds other
-    * valid positions to move them cell adhesions.
-    */
+   * @brief Save the current state of the cell to a file.
+   */
+  void save_state();
+
+  /**
+   * @brief Rearrange the adhesion points around the cell to simulate evolution
+   * of cell adhesions. Randomly picks adh_frac of the adhesions and finds other
+   * valid positions to move them cell adhesions.
+   */
   void rearrange_adhesions();
 
   /**
@@ -212,13 +218,13 @@ private:
   void update_cell();
 
   /**
-    * @brief Correct the concentrations of cell signals for each pixel so the total A and I remains constant.
-    */
+   * @brief Correct the concentrations of cell signals for each pixel so the total A and I remains constant.
+   */
   void correct_concentrations();
 
   /**
-    * @brief Diffuse k0_adh over the cell.
-    */
+   * @brief Diffuse k0_adh over the cell.
+   */
   void diffuse_k0_adh();
 
   /**
@@ -299,6 +305,26 @@ private:
    * @return Vector of randomized order
    */
   const std::vector<std::pair<int, int>> randomize_nonzero(const SpMat_i mat);
+
+  /**
+   * @brief Append a value (int or SpMat_d) to a dataset.
+   *
+   * @param file HighFive file to save dataset to
+   * @param dataset Name of the dataset to save the data to
+   * @param mat Data to append to dataset
+   */
+  void append_dataset(HighFive::File &file, const std::string &dataset, int v);
+  void append_dataset(HighFive::File &file, const std::string &dataset, SpMat_i &mat);
+
+  /**
+   * @brief Append a value (any row-major Eigen Matrix) to a dataset.
+   *
+   * @param file HighFive file to save dataset to
+   * @param dataset Name of the dataset to save the data to
+   * @param mat Data to append to dataset
+   */
+  template <typename T>
+  void append_dataset(HighFive::File &file, const std::string& dataset, Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> &mat);
 
   // Protrusion and retraction parameters
   double k_; ///< Relative contribution of geometry factor to cell protrusion/retraction probability
@@ -399,6 +425,8 @@ private:
   Mat_d g_dyn_f_; ///< saved kernel for gaussian smoothing of dyn_f
   std::unordered_set<int> protrude_conf_; ///< numerical encoding of allowed protrusion configurations
   std::unordered_set<int> retract_conf_; ///< numerical encoding of allowed retraction configurations
+  
+  std::string output_file_; ///< file to save cell states to
   
   // random number generation helpers
   std::mt19937 rng;
