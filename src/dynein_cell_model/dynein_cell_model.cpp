@@ -1,4 +1,5 @@
 #include <cmath>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <algorithm>
@@ -10,6 +11,7 @@
 #include <omp.h>
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
+#include <yaml-cpp/node/node.h>
 #include <yaml-cpp/node/parse.h>
 #include <yaml-cpp/yaml.h>
 
@@ -114,7 +116,49 @@ CellModelConfig::CellModelConfig(std::string config_file) {
 }
 
 void CellModelConfig::save_file(std::string dest_file) {
-  // TODO: Implement save to file
+  YAML::Node config;
+  config["k"] = k_;
+  config["k_nuc"] = k_nuc_;
+  config["g"] = g_;
+  config["T"] = T_;
+  config["T_nuc"] = T_nuc_;
+  config["act_slope"] = act_slope_;
+  config["adh_sigma"] = adh_sigma_;
+  config["adh_basal"] = adh_basal_;
+  config["adh_frac"] = adh_frac_;
+  config["adh_num"] = adh_num_;
+  config["R0"] = R0_;
+  config["R_nuc"] = R_nuc_;
+  config["dyn_basal"] = dyn_basal_;
+  config["prop_factor"] = prop_factor_;
+  config["dyn_norm_k"] = dyn_norm_k_;
+  config["dyn_sigma"] = dyn_sigma_;
+  config["dyn_kernel_size"] = dyn_kernel_size_;
+  config["DA"] = DA_;
+  config["DI"] = DI_;
+  config["k0"] = k0_;
+  config["k0_min"] = k0_min_;
+  config["k0_scalar"] = k0_scalar_;
+  config["gamma"] = gamma_;
+  config["delta"] = delta_;
+  config["A0"] = A0_;
+  config["s1"] = s1_;
+  config["s2"] = s2_;
+  config["F0"] = F0_;
+  config["kn"] = kn_;
+  config["ks"] = ks_;
+  config["eps"] = eps_;
+  config["dt"] = dt_;
+  config["dx"] = dx_;
+  config["A_max"] = A_max_;
+  config["A_min"] = A_min_;
+  config["AC_max"] = AC_max_;
+  config["AC_min"] = AC_min_;
+  config["sim_rows"] = sim_rows_;
+  config["sim_cols"] = sim_cols_;
+
+  std::ofstream fout(dest_file);
+  fout << config;
 }
 
 CellModel::CellModel() {

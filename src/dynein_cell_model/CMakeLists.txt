@@ -25,6 +25,13 @@ else()
   target_link_libraries(dynein_cell_model PUBLIC Eigen3::Eigen)
 endif()
 
+# -------- OpenCV --------
+find_package(OpenCV REQUIRED)
+message(STATUS "OpenCV version: ${OpenCV_VERSION}")
+message(STATUS "OpenCV include path: ${OpenCV_INCLUDE_DIRS}")
+target_include_directories(dynein_cell_model PUBLIC ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(dynein_cell_model PRIVATE ${OpenCV_LIBS})
+
 # -------- yaml-cpp --------
 find_package(yaml-cpp QUIET)
 if(NOT yaml-cpp_FOUND)
@@ -41,9 +48,15 @@ else()
   target_link_libraries(dynein_cell_model PUBLIC yaml-cpp)
 endif()
 
-# -------- OpenCV --------
-find_package(OpenCV REQUIRED)
-message(STATUS "OpenCV version: ${OpenCV_VERSION}")
-message(STATUS "OpenCV include path: ${OpenCV_INCLUDE_DIRS}")
-target_include_directories(dynein_cell_model PUBLIC ${OpenCV_INCLUDE_DIRS})
-target_link_libraries(dynein_cell_model PRIVATE ${OpenCV_LIBS})
+# -------- HighFive --------
+if(NOT TARGET HighFive::HighFive)
+    message(STATUS "HighFive not found, fetching with FetchContent")
+    include(FetchContent)
+    FetchContent_Declare(
+      HighFive
+      GIT_REPOSITORY https://github.com/highfive-devs/highfive.git
+      GIT_TAG        v2.8.0
+    )
+    FetchContent_MakeAvailable(HighFive)
+endif()
+target_link_libraries(dynein_cell_model PUBLIC HighFive)
