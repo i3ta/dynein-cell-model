@@ -1052,31 +1052,18 @@ void CellModel::update_adhesion_field() {
     * between 0 and 1 and inverted to act as a protrusion probability.
     */
 
-  const double ampl = 1 / (2 * M_PI * adh_sigma_);
+  const double sigma_2 = adh_sigma_ * adh_sigma_;
+  const double ampl = 1 / (2 * M_PI * sigma_2);
   const double eps = 1e-10;
-
-  // Calculate adh_g for adhesion points
-  Mat_d K(adh_num_, adh_num_); // Gaussian kernel matrix
-  Vec_d g_k(adh_num_); // adh_g for adhesions, for Eigen vectorization optimization
-  #pragma omp parallel for
-  for (int k = 0; k < adh_num_; k++) {
-    for (int j = 0; j < adh_num_; j++) {
-      double dr = adh_pos_(0, k) - adh_pos_(0, j);
-      double dc = adh_pos_(1, k) - adh_pos_(1, j);
-      K(k, j) = std::exp(-(dr * dr + dc * dc) / (2 * adh_sigma_));
-    }
-  }
-  g_k = K.rowwise().sum();
-
-  for (int k = 0; k < adh_num_; k++) {
-    adh_g_(adh_pos_(0, k), adh_pos_(1, k)) = g_k(k);
-  }
 
   // Calculate adh_g and adh_f
   #pragma omp parallel for collapse(2)
   for (int i = frame_row_start_; i <= frame_row_end_; i++) {
     for (int j = frame_col_start_; j <= frame_col_end_; j++) {
-      if (adh_.coeffRef(i, j) == 1) continue;
+      // Only need to calculate for pixels on outline or inner outline
+      // because those are the only pixels that can be protruded or retracted
+      if (outline_.coeff(i, j) == 0 && inner_outline_.coeff(i, j) == 0)
+        continue;
 
       // Get distances to adhesions
       Arr_d dr = adh_pos_.row(0).cast<double>().array() - i;
@@ -1084,14 +1071,16 @@ void CellModel::update_adhesion_field() {
       Arr_d dist2 = dr.square() + dc.square();
 
       // Calculate adh_g
-      Arr_d gaussian = (-dist2 / (2 * adh_sigma_)).exp();
+      Arr_d gaussian = (-dist2 / (2 * sigma_2)).exp();
       double g_val = gaussian.sum();
-      adh_g_(i, j) = ampl * g_val;
+      adh_g_(i, j) = ampl * g_val; // NOTE: This variable can be removed
 
-      // Normalize using IDW normalization
-      Arr_d inv = 1.0 / (dist2 + eps);
-      Arr_d gaus_inv = gaussian * inv;
-      adh_f_(i, j) = gaus_inv.sum() / inv.sum();
+      if (adh_.coeff(i, j) == 0) {
+        // Normalize using IDW normalization
+        Arr_d inv = 1.0 / (dist2 + eps);
+        Arr_d gaus_inv = gaussian * inv;
+        adh_f_(i, j) = ampl * gaus_inv.sum() / inv.sum();
+      }
     }
   }
 
@@ -1102,7 +1091,7 @@ void CellModel::update_adhesion_field() {
   #pragma omp parallel for collapse(2)
   for (int i = frame_row_start_; i <= frame_row_end_; i++) {
     for (int j = frame_col_start_; j <= frame_col_end_; j++) {
-      if (adh_.coeffRef(i, j) == 1) {
+      if (adh_.coeff(i, j) == 1) {
         adh_f_(i, j) = 0;
         k0_adh_(i, j) = k0_;
       } else {
