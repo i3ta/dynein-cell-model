@@ -106,6 +106,7 @@ public:
   int diff_t_; ///< time of diffusion
   int frame_padding_; ///< distance from the cell border to the edge of the frame
   std::string save_dir_; ///< directory to save snapshots to;
+  int seed_;
 };
 
 
@@ -200,6 +201,28 @@ public:
     * @brief Retract the cell boundary.
     */
   void retract();
+
+  void set_cell(const Mat_i cell);
+
+  void set_nuc(const Mat_i nuc);
+
+  void set_adh(const SpMat_i adh);
+
+  void set_A(const Mat_d A);
+
+  void set_AC(const Mat_d AC);
+
+  void set_I(const Mat_d I);
+
+  void set_IC(const Mat_d IC);
+
+  void set_F(const Mat_d F);
+
+  void set_FC(const Mat_d FC);
+
+  void set_env(const Mat_i env);
+
+  void set_seed(const int seed);
 
 private:
   /**
@@ -380,7 +403,7 @@ private:
   int save_t_; ///< number of time steps per save
   int diff_t_; ///< time of diffusion
   int frame_padding_; ///< distance from the cell border to the edge of the frame
-  std::string save_dir_; ///< directory to save snapshots to;
+  int seed_ = 0;
 
   // Frame variables
   int frame_row_start_; ///< first row in the frame (inclusive)
@@ -430,7 +453,7 @@ private:
   
   // random number generation helpers
   std::mt19937 rng;
-  std::uniform_real_distribution<> prob_dist = std::uniform_real_distribution<>(0.0, 1.0);
+  std::uniform_real_distribution<> prob_dist;
   
 }; // CellModel class
 

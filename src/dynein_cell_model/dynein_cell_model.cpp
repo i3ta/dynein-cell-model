@@ -70,6 +70,9 @@ CellModelConfig::CellModelConfig() {
   adh_t_ = 200;
   fr_t_ = 50;
   adh_basal_ = 0.3;
+  sim_rows_ = 1500;
+  sim_cols_ = 600;
+  seed_ = 0;
 }
 
 CellModelConfig::CellModelConfig(std::string config_file) {
@@ -116,6 +119,7 @@ CellModelConfig::CellModelConfig(std::string config_file) {
   AC_min_ = config["AC_min"].as<double>();
   sim_rows_ = config["sim_rows"].as<int>();
   sim_cols_ = config["sim_cols"].as<int>();
+  seed_ = config["seed"].as<int>();
 }
 
 void CellModelConfig::save_file(std::string dest_file) {
@@ -159,6 +163,7 @@ void CellModelConfig::save_file(std::string dest_file) {
   config["AC_min"] = AC_min_;
   config["sim_rows"] = sim_rows_;
   config["sim_cols"] = sim_cols_;
+  config["seed"] = seed_;
 
   std::ofstream fout(dest_file);
   fout << config;
@@ -525,7 +530,7 @@ void CellModel::retract_nuc() {
       double FC = FC_.block<3, 3>(r - 1, c - 1).sum();
       double IC = IC_.block<3, 3>(r - 1, c - 1).sum();
 
-      AC_(r, c) = AC / n;
+      AC_(r, c) = std::clamp(AC / n, AC_min_, AC_max_);
       AC_cor_sum_ += AC_(r, c);
       IC_(r, c) = IC / n;
       IC_cor_sum_ += IC_(r, c);
@@ -592,10 +597,10 @@ void CellModel::protrude() {
       double FC_avg = FC_.block<3, 3>(r - 1, c - 1).sum() / N;
 
       cell_(r, c) = 1;
-      A_(r, c) = A_avg;
+      A_(r, c) = std::clamp(A_avg, A_min_, A_max_);
       I_(r, c) = I_avg;
       F_(r, c) = F_avg;
-      AC_(r, c) = AC_avg;
+      AC_(r, c) = std::clamp(AC_avg, AC_min_, AC_max_);
       IC_(r, c) = IC_avg;
       FC_(r, c) = FC_avg;
 
@@ -669,9 +674,66 @@ void CellModel::retract() {
   update_cell();
 }
 
+void CellModel::set_cell(const Mat_i cell) {
+  cell_ = cell;
+  update_cell();
+  update_frame();
+}
+
+void CellModel::set_nuc(const Mat_i nuc) {
+  nuc_ = nuc;
+  update_nuc();
+}
+
+void CellModel::set_adh(const SpMat_i adh) {
+  adh_ = adh;
+  adh_num_ = adh.nonZeros();
+  adh_pos_ = Mat_i(2, adh_num_);
+
+  // Set adhesion coords
+  int i = 0; // index in adh positions
+  for (int k = 0; k < adh.outerSize(); k++) {
+    for (SpMat_i::InnerIterator it(adh, k); it; ++it) {
+      adh_pos_(0, i) = it.row();
+      adh_pos_(1, i) = it.col();
+      i++;
+    }
+  }
+}
+
+void CellModel::set_A(const Mat_d A) {
+  A_ = A;
+}
+
+void CellModel::set_AC(const Mat_d AC) {
+  AC_ = AC;
+}
+
+void CellModel::set_I(const Mat_d I) {
+  I_ = I;
+}
+
+void CellModel::set_IC(const Mat_d IC) {
+  IC_ = IC;
+}
+
+void CellModel::set_F(const Mat_d F) {
+  F_ = F;
+}
+
+void CellModel::set_FC(const Mat_d FC) {
+  FC_ = FC;
+}
+
+void CellModel::set_env(const Mat_i env) {
+  env_ = env;
+}
+
+void CellModel::set_seed(const int seed) {
+  seed_ = seed;
+}
+
 void CellModel::initialize_helpers() {
-  // TODO: Implement initialize helpers
-  
   // Initialize correction variables
   A_cor_sum_ = 0;
   I_cor_sum_ = 0;
@@ -683,6 +745,10 @@ void CellModel::initialize_helpers() {
 
   // Get valid configurations
   update_valid_conf();
+
+  // Initialize random
+  rng = std::mt19937(seed_);
+  prob_dist = std::uniform_real_distribution<>(0.0, 1.0);
 }
 
 void CellModel::update_nuc() {
