@@ -220,7 +220,7 @@ public:
 
   void set_FC(const Mat_d FC);
 
-  void set_env(const Mat_i env);
+  void set_env(const SpMat_i env);
 
   void set_seed(const int seed);
 

@@ -725,7 +725,7 @@ void CellModel::set_FC(const Mat_d FC) {
   FC_ = FC;
 }
 
-void CellModel::set_env(const Mat_i env) {
+void CellModel::set_env(const SpMat_i env) {
   env_ = env;
 }
 
