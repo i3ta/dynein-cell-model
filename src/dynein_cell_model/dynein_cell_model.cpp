@@ -1064,23 +1064,20 @@ void CellModel::update_adhesion_field() {
       // because those are the only pixels that can be protruded or retracted
       if (outline_.coeff(i, j) == 0 && inner_outline_.coeff(i, j) == 0)
         continue;
+      // Don't need to calculate for adhesions because values are fixed
+      if (adh_.coeff(i, j) == 1)
+        continue;
 
       // Get distances to adhesions
       Arr_d dr = adh_pos_.row(0).cast<double>().array() - i;
       Arr_d dc = adh_pos_.row(1).cast<double>().array() - j;
       Arr_d dist2 = dr.square() + dc.square();
-
-      // Calculate adh_g
       Arr_d gaussian = (-dist2 / (2 * sigma_2)).exp();
-      double g_val = gaussian.sum();
-      adh_g_(i, j) = ampl * g_val; // NOTE: This variable can be removed
 
-      if (adh_.coeff(i, j) == 0) {
-        // Normalize using IDW normalization
-        Arr_d inv = 1.0 / (dist2 + eps);
-        Arr_d gaus_inv = gaussian * inv;
-        adh_f_(i, j) = ampl * gaus_inv.sum() / inv.sum();
-      }
+      // Normalize using IDW normalization
+      Arr_d inv = 1.0 / (dist2 + eps);
+      Arr_d gaus_inv = gaussian * inv;
+      adh_f_(i, j) = ampl * gaus_inv.sum() / inv.sum();
     }
   }
 

@@ -441,7 +441,6 @@ private:
   Mat_d AC_; ///< values of AC
   Mat_d IC_; ///< values of IC
   Mat_d FC_; ///< values of FC
-  Mat_d adh_g_; ///< smoothed adhesion points
   Mat_d adh_f_; ///< field of adhesion influence
   Mat_d dyn_f_; ///< dynein field force
 
