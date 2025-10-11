@@ -866,7 +866,7 @@ void CellModel::correct_concentrations() {
         I_(i, j) -= I_dist;
       }
       if (cell_(i, j) == 1 && nuc_(i, j) == 0) {
-        AC_(i, j) -= A_dist;
+        AC_(i, j) -= AC_dist;
         IC_(i, j) -= IC_dist;
       }
     }
@@ -879,7 +879,7 @@ void CellModel::correct_concentrations() {
 }
 
 void CellModel::diffuse_k0_adh() {
-  double s2C = 0.05; // NOTE: what is this?
+  double s2C = 0.05;
   double A0_3 = std::pow(A0_, 3);
   double dx_2 = dx_ * dx_;
   
@@ -1056,7 +1056,17 @@ void CellModel::update_adhesion_field() {
   const double ampl = 1 / (2 * M_PI * sigma_2);
   const double eps = 1e-10;
 
-  // Calculate adh_g and adh_f
+  // Calculate for adhesions
+  Vec_d norm_sq = adh_pos_.colwise().squaredNorm();     
+  Mat_d dot_prod = -2 * adh_pos_.transpose() * adh_pos_;
+  Mat_d dist2 = dot_prod;
+  dist2.colwise() += norm_sq;
+  dist2.rowwise() += norm_sq.transpose();
+  Mat_d f_ind = (-dist2.array() / (2.0 * sigma_2)).exp().matrix();
+  Arr_d adh_g = f_ind.rowwise().sum().array() * ampl;
+  
+  // Calculate for non-adhesions
+  adh_f_.setZero();
   #pragma omp parallel for collapse(2)
   for (int i = frame_row_start_; i <= frame_row_end_; i++) {
     for (int j = frame_col_start_; j <= frame_col_end_; j++) {
@@ -1065,19 +1075,25 @@ void CellModel::update_adhesion_field() {
       if (outline_.coeff(i, j) == 0 && inner_outline_.coeff(i, j) == 0)
         continue;
       // Don't need to calculate for adhesions because values are fixed
-      if (adh_.coeff(i, j) == 1)
+      if (adh_.coeff(i, j) == 1) {
+        k0_adh_(i, j) = k0_;
         continue;
+      }
 
       // Get distances to adhesions
       Arr_d dr = adh_pos_.row(0).cast<double>().array() - i;
       Arr_d dc = adh_pos_.row(1).cast<double>().array() - j;
       Arr_d dist2 = dr.square() + dc.square();
-      Arr_d gaussian = (-dist2 / (2 * sigma_2)).exp();
 
-      // Normalize using IDW normalization
-      Arr_d inv = 1.0 / (dist2 + eps);
-      Arr_d gaus_inv = gaussian * inv;
-      adh_f_(i, j) = ampl * gaus_inv.sum() / inv.sum();
+      Arr_d gaussian = (-dist2 / (2 * sigma_2)).exp();
+      double f = gaussian.sum();
+      double norm_numer = (adh_g / dist2).sum();
+      double norm_denom = (1.0 / dist2).sum();
+
+      double adh_g_i = ampl * f;
+      double adh_f_i = adh_g_i * norm_denom / norm_numer;
+      adh_f_(i, j) = adh_f_i;
+      k0_adh_(i, j) = (k0_ - k0_min_) * k0_scalar_ * adh_f_i + k0_min_;
     }
   }
 
@@ -1088,12 +1104,9 @@ void CellModel::update_adhesion_field() {
   #pragma omp parallel for collapse(2)
   for (int i = frame_row_start_; i <= frame_row_end_; i++) {
     for (int j = frame_col_start_; j <= frame_col_end_; j++) {
-      if (adh_.coeff(i, j) == 1) {
-        adh_f_(i, j) = 0;
-        k0_adh_(i, j) = k0_;
-      } else {
+      if (adh_.coeff(i, j) != 1 && 
+        (outline_.coeff(i, j) == 1 || inner_outline_.coeff(i, j) == 1)) {
         adh_f_(i, j) = 1 - (adh_f_(i, j) / max_f);
-        k0_adh_(i, j) = (k0_ - k0_min_) * k0_scalar_ * (1 - adh_f_(i, j)) + k0_min_;
       }
     }
   }
