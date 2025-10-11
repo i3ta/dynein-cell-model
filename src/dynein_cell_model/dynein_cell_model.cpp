@@ -1057,8 +1057,9 @@ void CellModel::update_adhesion_field() {
   const double eps = 1e-10;
 
   // Calculate for adhesions
-  Vec_d norm_sq = adh_pos_.colwise().squaredNorm();     
-  Mat_d dot_prod = -2 * adh_pos_.transpose() * adh_pos_;
+  Mat_d adh_pos_d = adh_pos_.cast<double>();
+  Vec_d norm_sq = adh_pos_d.colwise().squaredNorm();     
+  Mat_d dot_prod = -2 * adh_pos_d.transpose() * adh_pos_d;
   Mat_d dist2 = dot_prod;
   dist2.colwise() += norm_sq;
   dist2.rowwise() += norm_sq.transpose();
