@@ -2,12 +2,13 @@
 #include <iostream>
 #include <string>
 #include <filesystem>
+#include <vector>
 
 #include <opencv2/core/matx.hpp>
 
 #include <dynein_cell_model/dynein_cell_model.hpp>
 #include <metric_utils/metric_utils.hpp>
-#include <vector>
+#include <tqdm.hpp>
 
 namespace dcm = dynein_cell_model;
 
@@ -63,12 +64,15 @@ int main(int argc, char *argv[]) {
   std::vector<double> iter_times;
   
   std::cout << "Running iterations: " << config.num_iters_ << " iterations" << std::endl;
-  std::cout << "Simulating" << std::flush;
-  for (int i = 0; i < config.num_iters_; i++) {
-    if (i % 100 == 0) std::cout << "." << std::flush;
+  auto A = tq::trange(config.num_iters_);
+  for (int i: A) {
     timer.reset();
-    cell.step();
+    std::string out = cell.step();
     iter_times.push_back(timer.elapsed().count());
+
+    Eigen::Map<dcm::Arr_d> iter_arr(iter_times.data(), iter_times.size());
+    double mean = iter_arr.mean();
+    A << mean << " ms / it " << out;
   }
   std::cout << std::endl;
 

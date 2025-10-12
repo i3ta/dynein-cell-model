@@ -125,6 +125,8 @@ public:
    */
   CellModel(CellModelConfig config);
 
+  ~CellModel();
+
   /**
    * @brief Update all config parameters of the model
    *
@@ -156,7 +158,7 @@ public:
   /**
    * @brief Perform one time step of cell simulations.
    */
-  void step();
+  std::string step();
 
   /**
    * @brief Set the file to save outputs to.
@@ -363,33 +365,46 @@ private:
    * @param mat Data to append to dataset
    */
   template <typename T>
-  void append_dataset(HighFive::File &file, const std::string& dataset, Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> &mat) {
+  void append_dataset(HighFive::File &file, const std::string& dataset, 
+                      Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> &mat) {
     // Create dataset if it does not exist
     if (!file.exist(dataset)) {
-      std::vector<size_t> dims = {0, (size_t)mat.rows(), (size_t)mat.cols()};
+      std::vector<size_t> dims = {CHUNK_SIZE, (size_t)mat.rows(), (size_t)mat.cols()};
       std::vector<size_t> max_dims = {HighFive::DataSpace::UNLIMITED, (size_t)mat.rows(), (size_t)mat.cols()};
-
       HighFive::DataSpace dataspace(dims, max_dims);
       HighFive::DataSetCreateProps props;
       props.add(HighFive::Chunking({1, (size_t)mat.rows(), (size_t)mat.cols()}));
-
       file.createDataSet<T>(dataset, dataspace, props);
+      next_index_[dataset] = 0;
     }
-
-    // Open dataset
+    
+    // Get or initialize next index
+    if (next_index_.find(dataset) == next_index_.end()) {
+      std::vector<size_t> dims = file.getDataSet(dataset).getSpace().getDimensions();
+      next_index_[dataset] = dims[0];
+    }
+    
     HighFive::DataSet dset = file.getDataSet(dataset);
-
-    // Get current dimensions
-    std::vector<size_t> dims = dset.getSpace().getDimensions();
-    if (dims.size() != 3 || dims[1] != (size_t)mat.rows() || dims[2] != (size_t)mat.cols()) {
-      throw std::runtime_error("Dataset does not have expected dimensions.");
+    size_t next_t = next_index_[dataset];
+    
+    // Check if we need to extend
+    std::vector<size_t> current_dims = dset.getSpace().getDimensions();
+    if (next_t >= current_dims[0]) {
+      // Extend by CHUNK_SIZE
+      dset.resize({current_dims[0] + CHUNK_SIZE, current_dims[1], current_dims[2]});
     }
-
-    size_t next_t = dims[0];
-
-    // Extend dataset by 1
-    dset.resize({next_t + 1, dims[1], dims[2]});
-    dset.select({next_t, 0, 0}, {1, dims[1], dims[2]}).write_raw(mat.data());
+    
+    // Write data
+    dset.select({next_t, 0, 0}, {1, (size_t)mat.rows(), (size_t)mat.cols()}).write_raw(mat.data());
+    next_index_[dataset]++;
+  }
+  
+  void finalize(HighFive::File &file, const std::string& dataset) {
+    if (next_index_.find(dataset) != next_index_.end()) {
+      HighFive::DataSet dset = file.getDataSet(dataset);
+      std::vector<size_t> dims = dset.getSpace().getDimensions();
+      dset.resize({next_index_[dataset], dims[1], dims[2]});
+    }
   }
 
   // Protrusion and retraction parameters
@@ -491,11 +506,15 @@ private:
   std::unordered_set<int> protrude_conf_; ///< numerical encoding of allowed protrusion configurations
   std::unordered_set<int> retract_conf_; ///< numerical encoding of allowed retraction configurations
   
-  std::string output_file_; ///< file to save cell states to
-  
   // random number generation helpers
   std::mt19937 rng;
   std::uniform_real_distribution<> prob_dist;
+
+  // save to file parameters
+  std::string output_file_; ///< file to save cell states to
+  std::unique_ptr<HighFive::File> results_;
+  static constexpr size_t CHUNK_SIZE = 100;
+  std::map<std::string, size_t> next_index_;
   
 }; // CellModel class
 

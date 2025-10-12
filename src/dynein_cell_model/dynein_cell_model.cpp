@@ -1,6 +1,4 @@
-#include "highfive/H5DataSet.hpp"
-#include "highfive/H5DataSpace.hpp"
-#include "highfive/H5PropertyList.hpp"
+#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <stdexcept>
@@ -17,6 +15,9 @@
 #include <yaml-cpp/node/parse.h>
 #include <yaml-cpp/yaml.h>
 #include <highfive/H5File.hpp>
+#include <highfive/H5DataSet.hpp>
+#include <highfive/H5DataSpace.hpp>
+#include <highfive/H5PropertyList.hpp>
 
 #include <dynein_cell_model/dynein_cell_model.hpp>
 
@@ -180,7 +181,6 @@ void CellModelConfig::save_file(std::string dest_file) {
 CellModel::CellModel() {
   CellModelConfig config;
   update_config(config);
-  initialize_helpers();
 }
 
 CellModel::CellModel(CellModelConfig config) {
@@ -237,6 +237,18 @@ void CellModel::update_config(CellModelConfig config) {
   initialize_helpers();
 }
 
+CellModel::~CellModel() {
+  // trim excess space for results
+  finalize(*results_, "cell");
+  finalize(*results_, "nuc");
+  finalize(*results_, "A");
+  finalize(*results_, "A");
+  finalize(*results_, "I");
+  finalize(*results_, "AC");
+  finalize(*results_, "IC");
+  finalize(*results_, "adh");
+}
+
 const CellModelConfig CellModel::get_config() {
   CellModelConfig config;
   config.k_ = k_;
@@ -291,7 +303,7 @@ void CellModel::simulate_steps(int n) {
   }
 }
 
-void CellModel::step() {
+std::string CellModel::step() {
   if (t_ % adh_t_ == 0) {
     rearrange_adhesions();
   }
@@ -300,25 +312,49 @@ void CellModel::step() {
     update_frame();
   }
 
+  auto start = std::chrono::high_resolution_clock::now();
+
   protrude_nuc();
   retract_nuc();
+
+  auto end = std::chrono::high_resolution_clock::now();
+  auto nuc_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+  start = end;
 
   protrude();
   retract();
 
+  end = std::chrono::high_resolution_clock::now();
+  auto cell_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+  start = end;
+
   correct_concentrations();
   diffuse_k0_adh();
   update_dyn_nuc_field();
+
+  end = std::chrono::high_resolution_clock::now();
+  auto diff_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+  start = end;
 
   if (t_ % save_t_ == 0) {
     save_state();
   }
 
   t_++;
+
+  return "nuc: " + std::to_string(nuc_ms)
+     + "  cell: " + std::to_string(cell_ms)
+     + "  diffusion: " + std::to_string(diff_ms);
 }
 
 void CellModel::set_output(const std::string filepath) {
   output_file_ = filepath;
+
+  // Open file
+  results_ = std::make_unique<HighFive::File>(
+    output_file_, 
+    HighFive::File::ReadWrite | HighFive::File::Create | HighFive::File::Truncate
+  );
 }
 
 void CellModel::save_state() {
@@ -326,20 +362,17 @@ void CellModel::save_state() {
     throw std::runtime_error("Output file must be set (using cellModel.set_output()) before the state of the cell can be saved.");
   }
 
-  // Open file
-  HighFive::File file(output_file_, HighFive::File::ReadWrite | HighFive::File::Create);
-
   // Append current time step (assuming all previous time steps have correct data)
-  append_dataset(file, "t", t_);
+  append_dataset(*results_, "t", t_);
 
   // Append data
-  append_dataset(file, "cell", cell_);
-  append_dataset(file, "nuc", nuc_);
-  append_dataset(file, "A", A_);
-  append_dataset(file, "I", I_);
-  append_dataset(file, "AC", AC_);
-  append_dataset(file, "IC", IC_);
-  append_dataset(file, "adh", adh_);
+  append_dataset(*results_, "cell", cell_);
+  append_dataset(*results_, "nuc", nuc_);
+  append_dataset(*results_, "A", A_);
+  append_dataset(*results_, "I", I_);
+  append_dataset(*results_, "AC", AC_);
+  append_dataset(*results_, "IC", IC_);
+  append_dataset(*results_, "adh", adh_);
 }
 
 void CellModel::rearrange_adhesions() {
@@ -699,9 +732,9 @@ void CellModel::protrude() {
       FC_(r, c) = FC_avg;
 
       // WARN: Make sure this sum is initialized properly
-      A_cor_sum_ += A_avg;
+      A_cor_sum_ += A_(r, c);
       I_cor_sum_ += I_avg;
-      AC_cor_sum_ += AC_avg;
+      AC_cor_sum_ += AC_(r, c);
       IC_cor_sum_ += IC_avg;
     }
   }
@@ -772,6 +805,8 @@ void CellModel::set_cell(const Mat_i cell) {
   cell_ = cell;
   update_cell(true);
   update_frame();
+
+  V0_ = V_;
 }
 
 void CellModel::set_nuc(const Mat_i nuc) {
@@ -969,7 +1004,7 @@ void CellModel::update_cell(const bool full) {
   }
 
   // update cell volume and perimeter
-  V_ = cell_.nonZeros();
+  V_ = (cell_.array() != 0).count();
   P_ = inner_outline_.nonZeros();
 }
 
@@ -1013,18 +1048,25 @@ void CellModel::diffuse_k0_adh() {
   Mat_d IC_new(sim_rows_, sim_cols_);
   Mat_d FC_new(sim_rows_, sim_cols_);
 
+  A_new = A_;
+  I_new = I_;
+  F_new = F_;
+  AC_new = AC_;
+  IC_new = IC_;
+  FC_new = FC_;
+
   for (int k = 0; k < diff_t_; k++) {
     #pragma omp parallel for collapse(2)
-    for (int i = frame_row_start_; i <= frame_col_end_; i++) {
+    for (int i = frame_row_start_; i <= frame_row_end_; i++) {
       for (int j = frame_col_start_; j <= frame_col_end_; j++) {
-        if (cell_(i, j)) {
+        if (cell_(i, j) == 1) {
           double A_3 = std::pow(A_(i, j), 3);
           double f = (k0_adh_(i, j) + gamma_ * A_3 / (A0_3 + A_3)) * I_(i, j)
             - delta_ * (s1_ + s2_ * F_(i, j) / (F0_ + F_(i, j))) * A_(i, j);
           double h = eps_ * (kn_ * A_(i, j) - ks_ * F_(i, j));
 
           A_new(i, j) = A_(i, j) + dt_ * (
-            f + DA_ / dx_2 * (
+            f + DA_ / dx_2 * (double)(
               cell_(i + 1, j) * (A_(i + 1, j) - A_(i, j)) 
             - cell_(i - 1, j) * (A_(i, j) - A_(i - 1, j)) 
             + cell_(i, j + 1) * (A_(i, j + 1) - A_(i, j)) 
@@ -1032,11 +1074,11 @@ void CellModel::diffuse_k0_adh() {
             )
           );
           I_new(i, j) = I_(i, j) + dt_ * (
-            -f + DI_ / dx_2 * (
+            -f + DI_ / dx_2 * (double)(
               cell_(i + 1, j) * (I_(i + 1, j) - I_(i, j)) 
             - cell_(i - 1, j) * (I_(i, j) - I_(i - 1, j)) 
             + cell_(i, j + 1) * (I_(i, j + 1) - I_(i, j)) 
-            - cell_(i, j - 1) * (I_(i, j - 1) - I_(i, j))
+            - cell_(i, j - 1) * (I_(i, j) - I_(i, j - 1))
             )
           );
           F_new(i, j) = F_(i, j) + h * dt_;
@@ -1049,7 +1091,7 @@ void CellModel::diffuse_k0_adh() {
           double hC = eps_ * (kn_ * AC_(i, j) - ks_ * FC_(i, j));
 
           AC_new(i, j) = AC_(i, j) + dt_ * (
-            fC + DA_ / dx_2 * (
+            fC + DA_ / dx_2 * (double)(
               (cell_(i + 1, j) - nuc_(i + 1, j)) * (AC_(i + 1, j) - AC_(i, j)) 
             - (cell_(i - 1, j) - nuc_(i - 1, j)) * (AC_(i, j) - AC_(i - 1, j))
             + (cell_(i, j + 1) - nuc_(i, j + 1)) * (AC_(i, j + 1) - AC_(i, j))
@@ -1057,7 +1099,7 @@ void CellModel::diffuse_k0_adh() {
             )
           );
           IC_new(i, j) = IC_(i, j) + dt_ * (
-            -fC + DI_ / dx_2 * (
+            -fC + DI_ / dx_2 * (double)(
               (cell_(i + 1, j) - nuc_(i + 1, j)) * (IC_(i + 1, j) - IC_(i, j)) 
             - (cell_(i - 1, j) - nuc_(i - 1, j)) * (IC_(i, j) - IC_(i - 1, j))
             + (cell_(i, j + 1) - nuc_(i, j + 1)) * (IC_(i, j + 1) - IC_(i, j))
@@ -1070,12 +1112,12 @@ void CellModel::diffuse_k0_adh() {
     }
 
     // replace elements
-    A_ = A_new;
-    I_ = I_new;
-    F_ = F_new;
-    AC_ = AC_new;
-    IC_ = IC_new;
-    FC_ = FC_new;
+    std::swap(A_, A_new);
+    std::swap(I_, I_new);
+    std::swap(F_, F_new);
+    std::swap(AC_, AC_new);
+    std::swap(IC_, IC_new);
+    std::swap(FC_, FC_new);
   }
 }
 
@@ -1315,8 +1357,8 @@ const bool CellModel::is_valid_config_retr(uint8_t conf) {
   if (diag1 || diag2 || diag3 || diag4) return false;
 
   // Pinch cases
-  bool vertical_pinch = (conf & (1 << 1)) && (conf & (1 << 5)) && !(conf & (1 << 3)) && !(conf & (1 << 7));
-  bool horizontal_pinch = (conf & (1 << 3)) && (conf & (1 << 7)) && !(conf & (1 << 1)) && !(conf & (1 << 5));
+  bool vertical_pinch = (conf & (1 << 1)) && (conf & (1 << 5));
+  bool horizontal_pinch = (conf & (1 << 3)) && (conf & (1 << 7));
 
   if (vertical_pinch || horizontal_pinch) return false;
 
