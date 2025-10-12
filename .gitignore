@@ -13,4 +13,5 @@ CMakeUserPresets.json
 build/
 .cache/
 
-**/results
+**/results.h5
+.DS_Store

@@ -107,6 +107,7 @@ public:
   int frame_padding_; ///< distance from the cell border to the edge of the frame
   std::string save_dir_; ///< directory to save snapshots to;
   int seed_;
+  int num_iters_;
 };
 
 
@@ -177,6 +178,12 @@ public:
   void rearrange_adhesions();
 
   /**
+   * @brief Initialize the adhesion points around the cell to simulate evolution
+   * of cell adhesions. Same logic as rearrange_adhesions but does all adhesions
+   */
+  void init_adhesions();
+
+  /**
    * @brief Update the cell processing boundaries to be where the cell is.
    */
   void update_frame();
@@ -237,6 +244,15 @@ private:
 
   /**
    * @brief Update the cell outlines and values.
+   *
+   * @param full whether to use the full simulation space (for initialization)
+   */
+  void update_cell(const bool full);
+
+  /**
+   * @brief Update the cell outlines and values.
+   *
+   * @param full whether to use the full simulation space (for initialization)
    */
   void update_cell();
 
@@ -347,7 +363,34 @@ private:
    * @param mat Data to append to dataset
    */
   template <typename T>
-  void append_dataset(HighFive::File &file, const std::string& dataset, Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> &mat);
+  void append_dataset(HighFive::File &file, const std::string& dataset, Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> &mat) {
+    // Create dataset if it does not exist
+    if (!file.exist(dataset)) {
+      std::vector<size_t> dims = {0, (size_t)mat.rows(), (size_t)mat.cols()};
+      std::vector<size_t> max_dims = {HighFive::DataSpace::UNLIMITED, (size_t)mat.rows(), (size_t)mat.cols()};
+
+      HighFive::DataSpace dataspace(dims, max_dims);
+      HighFive::DataSetCreateProps props;
+      props.add(HighFive::Chunking({1, (size_t)mat.rows(), (size_t)mat.cols()}));
+
+      file.createDataSet<T>(dataset, dataspace, props);
+    }
+
+    // Open dataset
+    HighFive::DataSet dset = file.getDataSet(dataset);
+
+    // Get current dimensions
+    std::vector<size_t> dims = dset.getSpace().getDimensions();
+    if (dims.size() != 3 || dims[1] != (size_t)mat.rows() || dims[2] != (size_t)mat.cols()) {
+      throw std::runtime_error("Dataset does not have expected dimensions.");
+    }
+
+    size_t next_t = dims[0];
+
+    // Extend dataset by 1
+    dset.resize({next_t + 1, dims[1], dims[2]});
+    dset.select({next_t, 0, 0}, {1, dims[1], dims[2]}).write_raw(mat.data());
+  }
 
   // Protrusion and retraction parameters
   double k_; ///< Relative contribution of geometry factor to cell protrusion/retraction probability

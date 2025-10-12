@@ -11,9 +11,16 @@ class ScopedTimer {
 public:
   ScopedTimer(const std::string name);
 
+  ScopedTimer(const std::string name, bool auto_time);
+
   ~ScopedTimer();
 
+  std::chrono::milliseconds elapsed();
+
+  void reset();
+
 private:
+  bool auto_time_;
   std::string name_;
   std::chrono::high_resolution_clock::time_point start_;
 };

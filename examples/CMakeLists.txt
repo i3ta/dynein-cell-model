@@ -14,6 +14,7 @@ foreach(test_src ${TEST_SOURCES})
         PRIVATE
             dynein_cell_model
             metric_utils
+            tqdm
     )
 endforeach()
 

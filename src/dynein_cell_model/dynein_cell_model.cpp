@@ -37,7 +37,7 @@ Mat_i matrix_from_mask(std::string filepath, cv::Vec3b color) {
 
   for (int c = 0; c < image.cols; c++) {
     for (int r = 0; r < image.rows; r++) {
-      if (image.at<cv::Vec3b>() == color) {
+      if (image.at<cv::Vec3b>(r, c) == color) {
         mat(r, c) = 1;
       }
     }
@@ -73,6 +73,7 @@ CellModelConfig::CellModelConfig() {
   sim_rows_ = 1500;
   sim_cols_ = 600;
   seed_ = 0;
+  num_iters_ = 5000000;
 }
 
 CellModelConfig::CellModelConfig(std::string config_file) {
@@ -120,6 +121,12 @@ CellModelConfig::CellModelConfig(std::string config_file) {
   sim_rows_ = config["sim_rows"].as<int>();
   sim_cols_ = config["sim_cols"].as<int>();
   seed_ = config["seed"].as<int>();
+  num_iters_ = config["num_iters"].as<int>();
+  frame_padding_ = config["frame_padding"].as<int>();
+  diff_t_ = config["diff_t"].as<int>();
+  save_t_ = config["save_t"].as<int>();
+  adh_t_ = config["adh_t"].as<int>();
+  fr_t_ = config["fr_t"].as<int>();
 }
 
 void CellModelConfig::save_file(std::string dest_file) {
@@ -164,6 +171,7 @@ void CellModelConfig::save_file(std::string dest_file) {
   config["sim_rows"] = sim_rows_;
   config["sim_cols"] = sim_cols_;
   config["seed"] = seed_;
+  config["num_iters"] = num_iters_;
 
   std::ofstream fout(dest_file);
   fout << config;
@@ -177,7 +185,6 @@ CellModel::CellModel() {
 
 CellModel::CellModel(CellModelConfig config) {
   update_config(config);
-  initialize_helpers();
 }
 
 void CellModel::update_config(CellModelConfig config) {
@@ -220,6 +227,11 @@ void CellModel::update_config(CellModelConfig config) {
   AC_min_ = config.AC_min_;
   sim_rows_ = config.sim_rows_;
   sim_cols_ = config.sim_cols_;
+  frame_padding_ = config.frame_padding_;
+  diff_t_ = config.diff_t_;
+  save_t_ = config.save_t_;
+  adh_t_ = config.adh_t_;
+  fr_t_ = config.fr_t_;
 
   // update variables that depend on config
   initialize_helpers();
@@ -315,7 +327,7 @@ void CellModel::save_state() {
   }
 
   // Open file
-  HighFive::File file(output_file_, HighFive::File::ReadWrite | HighFive::File::Create | HighFive::File::Truncate);
+  HighFive::File file(output_file_, HighFive::File::ReadWrite | HighFive::File::Create);
 
   // Append current time step (assuming all previous time steps have correct data)
   append_dataset(file, "t", t_);
@@ -360,12 +372,25 @@ void CellModel::rearrange_adhesions() {
   double A_sum = 0; // total sum of A in frame
   for (int i = 0, r = frame_row_start_; r <= frame_row_end_; i++, r++) {
     for (int j = 0, c = frame_col_start_; c <= frame_col_end_; j++, c++) {
-      if (env_.coeff(r, c) == 1) {
+      if (env_.coeff(r, c) == 1 && cell_(r, c) == 1) {
         // if is valid attachment point, it is a valid place for new adhesion
         A_sum += A_(r, c);
       }
       A_lin[i * cols + j] = A_sum;
       flat_pos[i * cols + j] = {r, c};
+    }
+  }
+
+  if (A_sum == 0) {
+    // if no A signal, assume uniform probability
+    for (int i = 0, r = frame_row_start_; r <= frame_row_end_; i++, r++) {
+      for (int j = 0, c = frame_col_start_; c <= frame_col_end_; j++, c++) {
+        if (env_.coeff(r, c) == 1 && cell_(r, c) == 1) {
+          A_sum += 1;
+        }
+        A_lin[i * cols + j] = A_sum;
+        flat_pos[i * cols + j] = {r, c};
+      }
     }
   }
 
@@ -387,7 +412,7 @@ void CellModel::rearrange_adhesions() {
       const int cand_c = idx % cols;
 
       // check new index valid
-      if (adh_.coeff(cand_r, cand_c) != 1 && env_.coeff(cand_r, cand_c) == 1 && cell_(cand_r, cand_c) == 1) {
+      if (adh_.coeff(cand_r, cand_c) != 1) {
         // env_ and cell_ should both always be satisfied, but to be safe
         r = cand_r;
         c = cand_c;
@@ -401,6 +426,75 @@ void CellModel::rearrange_adhesions() {
   }
 
   // smooth adhesion field
+  update_adhesion_field();
+}
+
+void CellModel::init_adhesions() {
+  /**
+   * Initializes adhesions randomly within the cell boundary.
+   * Sampling probability is weighted by the A-field, or uniform if A_sum == 0.
+   */
+
+  const int rows = frame_row_end_ - frame_row_start_ + 1;
+  const int cols = frame_col_end_ - frame_col_start_ + 1;
+  const int frame_size = rows * cols;
+
+  // Reset adhesion matrix
+  adh_.setZero();
+  adh_pos_.resize(2, adh_num_);
+  adh_pos_.setZero();
+
+  // Precompute linearized A and CDF
+  std::vector<double> A_lin(frame_size);
+  std::vector<std::pair<int, int>> flat_pos(frame_size);
+  double A_sum = 0;
+
+  for (int i = 0, r = frame_row_start_; r <= frame_row_end_; ++r, ++i) {
+    for (int j = 0, c = frame_col_start_; c <= frame_col_end_; ++c, ++j) {
+      if (env_.coeff(r, c) == 1 && cell_(r, c) == 1) {
+        A_sum += A_.coeff(r, c);
+      }
+      const int idx = i * cols + j;
+      A_lin[idx] = A_sum;
+      flat_pos[idx] = {r, c};
+    }
+  }
+
+  // Handle uniform distribution if A_sum == 0
+  if (A_sum == 0) {
+    A_sum = 0;
+    for (int i = 0, r = frame_row_start_; r <= frame_row_end_; ++r, ++i) {
+      for (int j = 0, c = frame_col_start_; c <= frame_col_end_; ++c, ++j) {
+        if (env_.coeff(r, c) == 1 && cell_(r, c) == 1) {
+          A_sum += 1;
+        }
+        const int idx = i * cols + j;
+        A_lin[idx] = A_sum;
+        flat_pos[idx] = {r, c};
+      }
+    }
+  }
+
+  // Sample adhesions
+  std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
+  int placed = 0;
+
+  while (placed < adh_num_) {
+    const double p = prob_dist(rng);
+    const auto idx_it = std::upper_bound(A_lin.begin(), A_lin.end(), A_sum * p);
+    if (idx_it == A_lin.begin() || idx_it == A_lin.end()) continue;
+
+    const int idx = std::prev(idx_it) - A_lin.begin();
+    const auto [r, c] = flat_pos[idx];
+
+    if (adh_.coeff(r, c) == 1) continue; // already occupied
+
+    adh_.coeffRef(r, c) = 1;
+    adh_pos_(0, placed) = r;
+    adh_pos_(1, placed) = c;
+    placed++;
+  }
+
   update_adhesion_field();
 }
 
@@ -676,7 +770,7 @@ void CellModel::retract() {
 
 void CellModel::set_cell(const Mat_i cell) {
   cell_ = cell;
-  update_cell();
+  update_cell(true);
   update_frame();
 }
 
@@ -749,6 +843,24 @@ void CellModel::initialize_helpers() {
   // Initialize random
   rng = std::mt19937(seed_);
   prob_dist = std::uniform_real_distribution<>(0.0, 1.0);
+
+  // Initialize matrices
+  outline_ = SpMat_i(sim_rows_, sim_cols_);
+  inner_outline_ = SpMat_i(sim_rows_, sim_cols_);
+  outline_nuc_ = SpMat_i(sim_rows_, sim_cols_);
+  inner_outline_nuc_ = SpMat_i(sim_rows_, sim_cols_);
+  A_ = Mat_d(sim_rows_, sim_cols_);
+  AC_ = Mat_d(sim_rows_, sim_cols_);
+  I_ = Mat_d(sim_rows_, sim_cols_);
+  IC_ = Mat_d(sim_rows_, sim_cols_);
+  F_ = Mat_d(sim_rows_, sim_cols_);
+  FC_ = Mat_d(sim_rows_, sim_cols_);
+  env_ = SpMat_i(sim_rows_, sim_cols_);
+  adh_ = SpMat_i(sim_rows_, sim_cols_);
+  adh_pos_ = Mat_i(2, adh_num_);
+  adh_f_ = Mat_d(sim_rows_, sim_cols_);
+  dyn_f_ = Mat_d(sim_rows_, sim_cols_);
+  k0_adh_ = Mat_d(sim_rows_, sim_cols_);
 }
 
 void CellModel::update_nuc() {
@@ -771,7 +883,7 @@ void CellModel::update_nuc() {
     #pragma omp for nowait
     for (int i = frame_row_start_; i <= frame_row_end_; i++) {
       for (int j = frame_col_start_; j <= frame_col_end_; j++) {
-        bool outline = false;
+        if (nuc_(i, j) == 0) continue;
         for (int k = 0; k < 4; k++) {
           const int nr = i + DR[k];
           const int nc = j + DC[k];
@@ -802,6 +914,10 @@ void CellModel::update_nuc() {
 }
 
 void CellModel::update_cell() {
+  update_cell(false);
+}
+
+void CellModel::update_cell(const bool full) {
   /**
    * Iterate through cell pixels and add 4-neighbors that are not part of the
    * cell to outer outline.
@@ -813,15 +929,21 @@ void CellModel::update_cell() {
   outline_.setZero();
   inner_outline_.setZero();
 
+  // Set bounds
+  int row_start = full ? 0 : frame_row_start_;
+  int row_end = full ? sim_rows_ - 1 : frame_row_end_;
+  int col_start = full ? 0 : frame_col_start_;
+  int col_end = full ? sim_cols_ - 1 : frame_col_end_;
+
   #pragma omp parallel
   {
     std::unordered_set<std::pair<int, int>, pair_hash> local_inner, local_outer;
 
     // Iterate through cell pixels
     #pragma omp for nowait
-    for (int i = frame_row_start_; i <= frame_row_end_; i++) {
-      for (int j = frame_col_start_; j <= frame_col_end_; j++) {
-        bool outline = false;
+    for (int i = row_start; i <= row_end; i++) {
+      for (int j = col_start; j <= col_end; j++) {
+        if (cell_(i, j) == 0) continue;
         for (int k = 0; k < 4; k++) {
           const int nr = i + DR[k];
           const int nc = j + DC[k];
@@ -1065,7 +1187,7 @@ void CellModel::update_adhesion_field() {
   dist2.rowwise() += norm_sq.transpose();
   Mat_d f_ind = (-dist2.array() / (2.0 * sigma_2)).exp().matrix();
   Arr_d adh_g = f_ind.rowwise().sum().array() * ampl;
-  
+
   // Calculate for non-adhesions
   adh_f_.setZero();
   #pragma omp parallel for collapse(2)
@@ -1272,36 +1394,6 @@ void CellModel::append_dataset(HighFive::File &file, const std::string& dataset,
   // Extend dataset by 1
   dset.resize({next_t + 1});
   dset.select({next_t}, {1}).write(&v);
-}
-
-template <typename T>
-void append_dataset(HighFive::File &file, const std::string& dataset, Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> &mat) {
-  // Create dataset if it does not exist
-  if (!file.exist(dataset)) {
-    std::vector<size_t> dims = {0, (size_t)mat.rows(), (size_t)mat.cols()};
-    std::vector<size_t> max_dims = {HighFive::DataSpace::UNLIMITED, (size_t)mat.rows(), (size_t)mat.cols()};
-
-    HighFive::DataSpace dataspace(dims, max_dims);
-    HighFive::DataSetCreateProps props;
-    props.add(HighFive::Chunking({1, (size_t)mat.rows(), (size_t)mat.cols()}));
-
-    file.createDataSet<int>(dataset, dataspace, props);
-  }
-
-  // Open dataset
-  HighFive::DataSet dset = file.getDataSet(dataset);
-
-  // Get current dimensions
-  std::vector<size_t> dims = dset.getSpace().getDimensions();
-  if (dims.size() != 3 || dims[1] != (size_t)mat.rows() || dims[2] != (size_t)mat.cols()) {
-    throw std::runtime_error("Dataset does not have expected dimensions.");
-  }
-
-  size_t next_t = dims[0];
-
-  // Extend dataset by 1
-  dset.resize({next_t + 1, dims[1], dims[2]});
-  dset.select({next_t, 0, 0}, {1, dims[1], dims[2]}).write(mat.data());
 }
 
 void CellModel::append_dataset(HighFive::File &file, const std::string& dataset, SpMat_i &mat) {
