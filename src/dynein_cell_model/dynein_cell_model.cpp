@@ -303,7 +303,7 @@ void CellModel::simulate_steps(int n) {
   }
 }
 
-std::string CellModel::step() {
+void CellModel::step() {
   if (t_ % adh_t_ == 0) {
     rearrange_adhesions();
   }
@@ -312,39 +312,21 @@ std::string CellModel::step() {
     update_frame();
   }
 
-  auto start = std::chrono::high_resolution_clock::now();
-
   protrude_nuc();
   retract_nuc();
-
-  auto end = std::chrono::high_resolution_clock::now();
-  auto nuc_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-  start = end;
 
   protrude();
   retract();
 
-  end = std::chrono::high_resolution_clock::now();
-  auto cell_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-  start = end;
-
   correct_concentrations();
   diffuse_k0_adh();
   update_dyn_nuc_field();
-
-  end = std::chrono::high_resolution_clock::now();
-  auto diff_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-  start = end;
 
   if (t_ % save_t_ == 0) {
     save_state();
   }
 
   t_++;
-
-  return "nuc: " + std::to_string(nuc_ms)
-     + "  cell: " + std::to_string(cell_ms)
-     + "  diffusion: " + std::to_string(diff_ms);
 }
 
 void CellModel::set_output(const std::string filepath) {

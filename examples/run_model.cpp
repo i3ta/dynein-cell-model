@@ -67,12 +67,12 @@ int main(int argc, char *argv[]) {
   auto A = tq::trange(config.num_iters_);
   for (int i: A) {
     timer.reset();
-    std::string out = cell.step();
+    cell.step();
     iter_times.push_back(timer.elapsed().count());
 
     Eigen::Map<dcm::Arr_d> iter_arr(iter_times.data(), iter_times.size());
     double mean = iter_arr.mean();
-    A << mean << " ms / it " << out;
+    A << mean << " ms / it ";
   }
   std::cout << std::endl;
 

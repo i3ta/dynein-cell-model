@@ -158,7 +158,7 @@ public:
   /**
    * @brief Perform one time step of cell simulations.
    */
-  std::string step();
+  void step();
 
   /**
    * @brief Set the file to save outputs to.
