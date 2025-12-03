@@ -2,6 +2,7 @@ import os
 import sys
 
 import matplotlib.pyplot as plt
+import numpy as np
 from h5py import File
 from matplotlib.animation import FuncAnimation
 
@@ -14,7 +15,7 @@ def main(dir: str, output: str):
     dset_nuc = file["nuc"]
     dset_A = file["A"]
 
-    data_cell = dset_cell[:, :, :] + dset_nuc[:, :, :]
+    data_cell = dset_cell[:, :, :].astype(np.int32) + dset_nuc[:, :, :].astype(np.int32)
     data_A = dset_A[:, :, :]
 
     t_len: int = dset_cell.shape[0]

@@ -161,6 +161,11 @@ public:
   void step();
 
   /**
+   * @brief Perform one time step of cell simulations, with timing metrics.
+   */
+  std::vector<double> step_timed();
+
+  /**
    * @brief Set the file to save outputs to.
    *
    * @param filepath Path of the file to save the state of the cell to.
@@ -348,16 +353,6 @@ private:
   const std::vector<std::pair<int, int>> randomize_nonzero(const SpMat_i mat);
 
   /**
-   * @brief Append a value (int or SpMat_d) to a dataset.
-   *
-   * @param file HighFive file to save dataset to
-   * @param dataset Name of the dataset to save the data to
-   * @param mat Data to append to dataset
-   */
-  void append_dataset(HighFive::File &file, const std::string &dataset, int v);
-  void append_dataset(HighFive::File &file, const std::string &dataset, SpMat_i &mat);
-
-  /**
    * @brief Append a value (any row-major Eigen Matrix) to a dataset.
    *
    * @param file HighFive file to save dataset to
@@ -366,7 +361,7 @@ private:
    */
   template <typename T>
   void append_dataset(HighFive::File &file, const std::string& dataset, 
-                      Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> &mat) {
+                      const Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> &mat) {
     // Create dataset if it does not exist
     if (!file.exist(dataset)) {
       std::vector<size_t> dims = {CHUNK_SIZE, (size_t)mat.rows(), (size_t)mat.cols()};
@@ -398,6 +393,19 @@ private:
     dset.select({next_t, 0, 0}, {1, (size_t)mat.rows(), (size_t)mat.cols()}).write_raw(mat.data());
     next_index_[dataset]++;
   }
+
+  /**
+   * @brief Append a value (int or SpMat_d) to a dataset.
+   *
+   * @param file HighFive file to save dataset to
+   * @param dataset Name of the dataset to save the data to
+   * @param mat Data to append to dataset
+   */
+  void append_dataset(HighFive::File &file, const std::string &dataset, const int v);
+  void append_dataset(HighFive::File &file, const std::string &dataset, const SpMat_i &mat, bool as_bool);
+  void append_dataset(HighFive::File &file, const std::string &dataset, const Mat_i &mat, bool as_bool);
+  void append_dataset(HighFive::File &file, const std::string &dataset, const Mat_d &mat);
+
   
   void finalize(HighFive::File &file, const std::string& dataset) {
     if (next_index_.find(dataset) != next_index_.end()) {

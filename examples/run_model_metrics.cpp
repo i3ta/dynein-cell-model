@@ -16,6 +16,10 @@ using json = nlohmann::json;
 
 namespace dcm = dynein_cell_model;
 
+/**
+ * Run the cell model simulations with additional metric tracking.
+ * Outputs metric data as csv instead of json.
+ */
 int main(int argc, char *argv[]) {
   metrics::ScopedTimer auto_timer("Total Elapsed Time");
 
@@ -67,12 +71,13 @@ int main(int argc, char *argv[]) {
 
   std::cout << "Setup done. (" << timer.elapsed().count() << " ms)" << std::endl;
   std::vector<double> iter_times;
+  std::vector<std::vector<double>> times;
   
   std::cout << "Running iterations: " << config.num_iters_ << " iterations" << std::endl;
   auto A = tq::trange(config.num_iters_);
   for (int i: A) {
     timer.reset();
-    cell.step();
+    times.push_back(cell.step_timed());
     iter_times.push_back(timer.elapsed().count());
 
     Eigen::Map<dcm::Arr_d> iter_arr(iter_times.data(), iter_times.size());
@@ -89,10 +94,17 @@ int main(int argc, char *argv[]) {
   std::cout << "Stdev: " << stdev << " ms / it\n";
 
   // Recording metrics for further optimization
-  json metrics;
-  metrics["iteration_times"] = json(iter_times);
-  
   std::ofstream metrics_file(metrics_file_path.string());
-  metrics_file << std::setw(4) << metrics << std::endl;
+  size_t num_sections = times.empty() ? 0 : times[0].size();
+
+  metrics_file << "rearrange_adhesions,update_frame,update_nuc,update_cell,update_conc,save_state\n";
+
+  for (std::vector<double>& row: times) {
+    for (double &t: row) {
+      metrics_file << t << ",";
+    }
+    metrics_file << "\n";
+  }
+
   metrics_file.close();
 }

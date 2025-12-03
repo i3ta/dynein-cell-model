@@ -1,4 +1,3 @@
-#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <stdexcept>
@@ -11,6 +10,7 @@
 #include <omp.h>
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
+#include <vector>
 #include <yaml-cpp/node/node.h>
 #include <yaml-cpp/node/parse.h>
 #include <yaml-cpp/yaml.h>
@@ -20,6 +20,7 @@
 #include <highfive/H5PropertyList.hpp>
 
 #include <dynein_cell_model/dynein_cell_model.hpp>
+#include <metric_utils/metric_utils.hpp>
 
 struct pair_hash {
   std::size_t operator()(const std::pair<int, int>& p) const {
@@ -329,6 +330,51 @@ void CellModel::step() {
   t_++;
 }
 
+std::vector<double> CellModel::step_timed() {
+  metrics::ScopedTimer timer("Step time", false);
+
+  std::vector<double> times;
+  times.reserve(6);
+
+  timer.reset();
+  if (t_ % adh_t_ == 0) {
+    rearrange_adhesions();
+  }
+  times.push_back(timer.elapsed().count());
+
+  timer.reset();
+  if (t_ % fr_t_ == 0) {
+    update_frame();
+  }
+  times.push_back(timer.elapsed().count());
+
+  timer.reset();
+  protrude_nuc();
+  retract_nuc();
+  times.push_back(timer.elapsed().count());
+
+  timer.reset();
+  protrude();
+  retract();
+  times.push_back(timer.elapsed().count());
+
+  timer.reset();
+  correct_concentrations();
+  diffuse_k0_adh();
+  update_dyn_nuc_field();
+  times.push_back(timer.elapsed().count());
+
+  timer.reset();
+  if (t_ % save_t_ == 0) {
+    save_state();
+  }
+  times.push_back(timer.elapsed().count());
+
+  t_++;
+
+  return times;
+}
+
 void CellModel::set_output(const std::string filepath) {
   output_file_ = filepath;
 
@@ -348,13 +394,13 @@ void CellModel::save_state() {
   append_dataset(*results_, "t", t_);
 
   // Append data
-  append_dataset(*results_, "cell", cell_);
-  append_dataset(*results_, "nuc", nuc_);
+  append_dataset(*results_, "cell", cell_, true);
+  append_dataset(*results_, "nuc", nuc_, true);
   append_dataset(*results_, "A", A_);
   append_dataset(*results_, "I", I_);
   append_dataset(*results_, "AC", AC_);
   append_dataset(*results_, "IC", IC_);
-  append_dataset(*results_, "adh", adh_);
+  append_dataset(*results_, "adh", adh_, true);
 }
 
 void CellModel::rearrange_adhesions() {
@@ -423,8 +469,8 @@ void CellModel::rearrange_adhesions() {
       const int idx = idx_it - A_lin.begin();
 
       // convert index to row and column
-      const int cand_r = idx / cols;
-      const int cand_c = idx % cols;
+      const int cand_r = idx / cols + frame_row_start_;
+      const int cand_c = idx % cols + frame_col_start_;
 
       // check new index valid
       if (adh_.coeff(cand_r, cand_c) != 1) {
@@ -1391,7 +1437,7 @@ const std::vector<std::pair<int, int>> CellModel::randomize_nonzero(const SpMat_
   return coords;
 }
 
-void CellModel::append_dataset(HighFive::File &file, const std::string& dataset, int v) {
+void CellModel::append_dataset(HighFive::File &file, const std::string& dataset, const int v) {
   // Create dataset if it does not exist
   if (!file.exist(dataset)) {
     std::vector<size_t> dims = {0};
@@ -1420,10 +1466,62 @@ void CellModel::append_dataset(HighFive::File &file, const std::string& dataset,
   dset.select({next_t}, {1}).write(&v);
 }
 
-void CellModel::append_dataset(HighFive::File &file, const std::string& dataset, SpMat_i &mat) {
+void CellModel::append_dataset(HighFive::File &file, const std::string& dataset, const SpMat_i &mat, bool as_bool) {
   // Convert to dense and save
   Mat_i dense = mat;
-  append_dataset(file, dataset, dense);
+  append_dataset(file, dataset, dense, as_bool);
+}
+
+void CellModel::append_dataset(HighFive::File &file, const std::string &dataset, const Mat_i &mat, bool as_bool) {
+  // Save as boolean for best compression
+  if (!as_bool) {
+    append_dataset<int>(file, dataset, mat);
+    return;
+  }
+
+  // Create dataset if it does not exist
+  if (!file.exist(dataset)) {
+    std::vector<size_t> dims = {CHUNK_SIZE, (size_t)mat.rows(), (size_t)mat.cols()};
+    std::vector<size_t> max_dims = {HighFive::DataSpace::UNLIMITED, (size_t)mat.rows(), (size_t)mat.cols()};
+    HighFive::DataSpace dataspace(dims, max_dims);
+    HighFive::DataSetCreateProps props;
+    props.add(HighFive::Chunking({1, (size_t)mat.rows(), (size_t)mat.cols()}));
+    file.createDataSet<bool>(dataset, dataspace, props);  // Note: bool type
+    next_index_[dataset] = 0;
+  }
+  
+  // Get or initialize next index
+  if (next_index_.find(dataset) == next_index_.end()) {
+    std::vector<size_t> dims = file.getDataSet(dataset).getSpace().getDimensions();
+    next_index_[dataset] = dims[0];
+  }
+  
+  HighFive::DataSet dset = file.getDataSet(dataset);
+  size_t next_t = next_index_[dataset];
+  
+  // Check if we need to extend
+  std::vector<size_t> current_dims = dset.getSpace().getDimensions();
+  if (next_t >= current_dims[0]) {
+    // Extend by CHUNK_SIZE
+    dset.resize({current_dims[0] + CHUNK_SIZE, current_dims[1], current_dims[2]});
+  }
+  
+  // Convert to boolean buffer
+  size_t total_size = mat.rows() * mat.cols();
+  bool* bool_buffer = new bool[total_size];
+  for (size_t i = 0; i < total_size; ++i) {
+    bool_buffer[i] = mat.data()[i] != 0;
+  }
+
+  // Write data
+  dset.select({next_t, 0, 0}, {1, (size_t)mat.rows(), (size_t)mat.cols()}).write_raw(bool_buffer);
+  delete[] bool_buffer;
+  next_index_[dataset]++;
+}
+
+void CellModel::append_dataset(HighFive::File &file, const std::string &dataset, const Mat_d &mat) {
+  // Convert to float
+  append_dataset<float>(file, dataset, mat.cast<float>());
 }
 
 } // dynein_cell_model namespace

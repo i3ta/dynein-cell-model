@@ -15,7 +15,9 @@ def main(dir: str, output: str):
         dset_A = file["A"]
 
         data_t = dset_t[:]
-        data_cell = dset_cell[:, :, :] + dset_nuc[:, :, :]
+        data_cell = dset_cell[:, :, :].astype(np.int32) + dset_nuc[:, :, :].astype(
+            np.int32
+        )
         data_A = dset_A[:, :, :]
         t_len = dset_cell.shape[0]
 

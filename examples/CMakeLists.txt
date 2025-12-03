@@ -1,5 +1,7 @@
 file(GLOB TEST_SOURCES "*.cpp")
 
+find_package(nlohmann_json 3.12.0 REQUIRED)
+
 foreach(test_src ${TEST_SOURCES})
     get_filename_component(test_name ${test_src} NAME_WE)
     add_executable(${test_name} ${test_src})
@@ -15,6 +17,7 @@ foreach(test_src ${TEST_SOURCES})
             dynein_cell_model
             metric_utils
             tqdm
+            nlohmann_json::nlohmann_json
     )
 endforeach()
 
