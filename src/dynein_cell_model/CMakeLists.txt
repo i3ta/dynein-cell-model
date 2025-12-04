@@ -40,7 +40,7 @@ if(NOT yaml-cpp_FOUND)
   FetchContent_Declare(
     yaml-cpp
     GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-    GIT_TAG yaml-cpp-0.8.0
+    GIT_TAG 0.8.0
   )
   FetchContent_MakeAvailable(yaml-cpp)
   target_link_libraries(dynein_cell_model PUBLIC yaml-cpp)
