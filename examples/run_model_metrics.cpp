@@ -97,7 +97,7 @@ int main(int argc, char *argv[]) {
   std::ofstream metrics_file(metrics_file_path.string());
   size_t num_sections = times.empty() ? 0 : times[0].size();
 
-  metrics_file << "rearrange_adhesions,update_frame,update_nuc,update_cell,update_conc,save_state\n";
+  metrics_file << "rearrange_adhesions,update_frame,update_nuc,update_cell,correct_conc,diffuse_k0,update_field,save_state,\n";
 
   for (std::vector<double>& row: times) {
     for (double &t: row) {

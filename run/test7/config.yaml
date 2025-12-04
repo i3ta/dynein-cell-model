@@ -1,7 +1,7 @@
 k: 1.6
 k_nuc: 4
 g: 2
-T: 10
+T: 500
 T_nuc: 1
 act_slope: 0.03
 adh_sigma: 5

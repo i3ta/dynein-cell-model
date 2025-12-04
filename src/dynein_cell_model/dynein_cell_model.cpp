@@ -360,7 +360,13 @@ std::vector<double> CellModel::step_timed() {
 
   timer.reset();
   correct_concentrations();
+  times.push_back(timer.elapsed().count());
+
+  timer.reset();
   diffuse_k0_adh();
+  times.push_back(timer.elapsed().count());
+
+  timer.reset();
   update_dyn_nuc_field();
   times.push_back(timer.elapsed().count());
 
@@ -797,6 +803,8 @@ void CellModel::retract() {
 
     if (retract_conf_.count(encode_8(cell_, r, c)) == 0) // not valid protrude configuration
       continue;
+    if (nuc_(r, c) == 1) // can't retract nucleus
+      continue;
 
     double n = 
       n_diag * (!cell_(r - 1, c - 1) + !cell_(r + 1, c - 1) + !cell_(r + 1, c + 1) + !cell_(r - 1, c + 1)) + 
@@ -840,6 +848,7 @@ void CellModel::set_cell(const Mat_i cell) {
 void CellModel::set_nuc(const Mat_i nuc) {
   nuc_ = nuc;
   update_nuc();
+  V0_nuc_ = V_nuc_;
 }
 
 void CellModel::set_adh(const SpMat_i adh) {
@@ -972,7 +981,7 @@ void CellModel::update_nuc() {
   }
 
   // update nucleus volume and perimeter
-  V_nuc_ = nuc_.nonZeros();
+  V_nuc_ = (nuc_.array() == 1).count();
   P_nuc_ = inner_outline_nuc_.nonZeros();
 }
 
