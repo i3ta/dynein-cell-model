@@ -1,6 +1,6 @@
 file(GLOB TEST_SOURCES "*.cpp")
 
-find_package(nlohmann_json 3.12.0 REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 foreach(test_src ${TEST_SOURCES})
     get_filename_component(test_name ${test_src} NAME_WE)
