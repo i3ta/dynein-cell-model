@@ -1094,8 +1094,8 @@ void CellModel::diffuse_k0_adh() {
 
   for (int k = 0; k < diff_t_; k++) {
     #pragma omp parallel for collapse(2)
-    for (int i = frame_row_start_; i <= frame_row_end_; i++) {
-      for (int j = frame_col_start_; j <= frame_col_end_; j++) {
+    for (int j = frame_col_start_; j <= frame_col_end_; j++) {
+      for (int i = frame_row_start_; i <= frame_row_end_; i++) {
         if (cell_(i, j) == 1) {
           double A_3 = std::pow(A_(i, j), 3);
           double f = (k0_adh_(i, j) + gamma_ * A_3 / (A0_3 + A_3)) * I_(i, j)
