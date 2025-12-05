@@ -1119,31 +1119,31 @@ void CellModel::diffuse_k0_adh() {
             )
           );
           F_new(i, j) = F_(i, j) + h * dt_;
-        }
 
-        if (cell_(i, j) == 1 && nuc_(i, j) == 0) {
-          double AC_3 = std::pow(AC_(i, j), 3);
-          double fC = (k0_ + gamma_ * AC_3 / (A0_3 + AC_3)) * IC_(i, j)
-            - delta_ * (s1_ + s2C * FC_(i, j) / (F0_ + FC_(i, j))) * AC_(i, j);
-          double hC = eps_ * (kn_ * AC_(i, j) - ks_ * FC_(i, j));
+          if (nuc_(i, j) == 0) {
+            double AC_3 = std::pow(AC_(i, j), 3);
+            double fC = (k0_ + gamma_ * AC_3 / (A0_3 + AC_3)) * IC_(i, j)
+              - delta_ * (s1_ + s2C * FC_(i, j) / (F0_ + FC_(i, j))) * AC_(i, j);
+            double hC = eps_ * (kn_ * AC_(i, j) - ks_ * FC_(i, j));
 
-          AC_new(i, j) = AC_(i, j) + dt_ * (
-            fC + DA_ / dx_2 * (double)(
-              (cell_(i + 1, j) - nuc_(i + 1, j)) * (AC_(i + 1, j) - AC_(i, j)) 
-            - (cell_(i - 1, j) - nuc_(i - 1, j)) * (AC_(i, j) - AC_(i - 1, j))
-            + (cell_(i, j + 1) - nuc_(i, j + 1)) * (AC_(i, j + 1) - AC_(i, j))
-            - (cell_(i, j - 1) - nuc_(i, j - 1)) * (AC_(i, j) - AC_(i, j - 1))
-            )
-          );
-          IC_new(i, j) = IC_(i, j) + dt_ * (
-            -fC + DI_ / dx_2 * (double)(
-              (cell_(i + 1, j) - nuc_(i + 1, j)) * (IC_(i + 1, j) - IC_(i, j)) 
-            - (cell_(i - 1, j) - nuc_(i - 1, j)) * (IC_(i, j) - IC_(i - 1, j))
-            + (cell_(i, j + 1) - nuc_(i, j + 1)) * (IC_(i, j + 1) - IC_(i, j))
-            - (cell_(i, j - 1) - nuc_(i, j - 1)) * (IC_(i, j) - IC_(i, j - 1))
-            )
-          );
-          FC_new(i, j) = FC_(i, j) + hC * dt_;
+            AC_new(i, j) = AC_(i, j) + dt_ * (
+              fC + DA_ / dx_2 * (double)(
+                (cell_(i + 1, j) - nuc_(i + 1, j)) * (AC_(i + 1, j) - AC_(i, j)) 
+              - (cell_(i - 1, j) - nuc_(i - 1, j)) * (AC_(i, j) - AC_(i - 1, j))
+              + (cell_(i, j + 1) - nuc_(i, j + 1)) * (AC_(i, j + 1) - AC_(i, j))
+              - (cell_(i, j - 1) - nuc_(i, j - 1)) * (AC_(i, j) - AC_(i, j - 1))
+              )
+            );
+            IC_new(i, j) = IC_(i, j) + dt_ * (
+              -fC + DI_ / dx_2 * (double)(
+                (cell_(i + 1, j) - nuc_(i + 1, j)) * (IC_(i + 1, j) - IC_(i, j)) 
+              - (cell_(i - 1, j) - nuc_(i - 1, j)) * (IC_(i, j) - IC_(i - 1, j))
+              + (cell_(i, j + 1) - nuc_(i, j + 1)) * (IC_(i, j + 1) - IC_(i, j))
+              - (cell_(i, j - 1) - nuc_(i, j - 1)) * (IC_(i, j) - IC_(i, j - 1))
+              )
+            );
+            FC_new(i, j) = FC_(i, j) + hC * dt_;
+          }
         }
       }
     }
