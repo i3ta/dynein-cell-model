@@ -947,12 +947,12 @@ void CellModel::update_nuc() {
   outline_nuc_.setZero();
   inner_outline_nuc_.setZero();
 
-  #pragma omp parallel
+  // #pragma omp parallel
   {
     std::unordered_set<std::pair<int, int>, pair_hash> local_inner, local_outer;
 
     // Iterate through nucleus pixels
-    #pragma omp for nowait
+    // #pragma omp for nowait
     for (int i = frame_row_start_; i <= frame_row_end_; i++) {
       for (int j = frame_col_start_; j <= frame_col_end_; j++) {
         if (nuc_(i, j) == 0) continue;
@@ -969,7 +969,7 @@ void CellModel::update_nuc() {
     }
 
     // update outlines
-    #pragma omp critical
+    // #pragma omp critical
     {
       for (auto &[r, c]: local_inner) {
         inner_outline_nuc_.coeffRef(r, c) = 1;
@@ -1007,12 +1007,12 @@ void CellModel::update_cell(const bool full) {
   int col_start = full ? 0 : frame_col_start_;
   int col_end = full ? sim_cols_ - 1 : frame_col_end_;
 
-  #pragma omp parallel
+  // #pragma omp parallel
   {
     std::unordered_set<std::pair<int, int>, pair_hash> local_inner, local_outer;
 
     // Iterate through cell pixels
-    #pragma omp for nowait
+    // #pragma omp for nowait
     for (int i = row_start; i <= row_end; i++) {
       for (int j = col_start; j <= col_end; j++) {
         if (cell_(i, j) == 0) continue;
@@ -1029,7 +1029,7 @@ void CellModel::update_cell(const bool full) {
     }
 
     // update outlines
-    #pragma omp critical
+    // #pragma omp critical
     {
       for (auto &[r, c]: local_inner) {
         inner_outline_.coeffRef(r, c) = 1;
@@ -1052,7 +1052,7 @@ void CellModel::correct_concentrations() {
   const double AC_dist = AC_cor_sum_ / (V_ - V0_nuc_);
   const double IC_dist = IC_cor_sum_ / (V_ - V0_nuc_);
 
-  #pragma omp parallel for collapse(2)
+  // #pragma omp parallel for collapse(2)
   for (int j = frame_col_start_; j <= frame_col_end_; j++) {
     for (int i = frame_row_start_; i <= frame_row_end_; i++) {
       if (cell_(i, j) == 1) {
@@ -1232,7 +1232,7 @@ void CellModel::update_dyn_nuc_field() {
 
   // sigmoid normalization
   const double dyn_f_avg = dyn_f_sum / n_cell;
-  #pragma omp parallel for collapse(2)
+  // #pragma omp parallel for collapse(2)
   for (int i = frame_row_start_; i <= frame_row_end_; i++) {
     for (int j = frame_col_start_; j <= frame_col_end_; j++) {
       if (dyn_f_(i, j) == 0) continue;
@@ -1269,7 +1269,7 @@ void CellModel::update_adhesion_field() {
 
   // Calculate for non-adhesions
   adh_f_.setZero();
-  #pragma omp parallel for collapse(2)
+  // #pragma omp parallel for collapse(2)
   for (int i = frame_row_start_; i <= frame_row_end_; i++) {
     for (int j = frame_col_start_; j <= frame_col_end_; j++) {
       // Only need to calculate for pixels on outline or inner outline
@@ -1303,7 +1303,7 @@ void CellModel::update_adhesion_field() {
   double max_f = adh_f_.block(frame_row_start_, frame_col_start_, 
                               frame_row_end_ - frame_row_start_ + 1,
                               frame_col_end_ - frame_col_start_ + 1).maxCoeff();
-  #pragma omp parallel for collapse(2)
+  // #pragma omp parallel for collapse(2)
   for (int i = frame_row_start_; i <= frame_row_end_; i++) {
     for (int j = frame_col_start_; j <= frame_col_end_; j++) {
       if (adh_.coeff(i, j) != 1 && 
@@ -1322,7 +1322,7 @@ const double CellModel::get_smoothed_dyn_f(const int r, const int c) {
   const int col_n = std::min(dyn_kernel_size_, sim_cols_ - c);
 
   double smoothed = 0.0;
-  #pragma omp parallel for collapse(2) reduction(+:smoothed)
+  // #pragma omp parallel for collapse(2) reduction(+:smoothed)
   for (int i = 0; i < row_n; i++) {
     for (int j = 0; j < col_n; j++) {
       smoothed += dyn_f_(row_start + i, col_start + j) * g_dyn_f_(i, j);
