@@ -9,9 +9,15 @@
 #SBATCH --mail-type=BEGIN,END,FAIL              # Mail preferences
 #SBATCH --mail-user=chung62@gatech.edu
 
-cd /storage/home/hcoda1/5/chung62/projects/dynein-cell-model/build/examples
-
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
-echo "OMP_NUM_THREADS set to: $SLURM_CPUS_PER_TASK"
 
+# Go to the project directory
+cd /storage/home/hcoda1/5/chung62/projects/dynein-cell-model
+
+# Compile the program
+cd build
+cmake --build .
+
+# Run the program
+cd examples
 srun ./run_model_metrics ../../run/dcm_test_5m ../../run/dcm_test_5m/metrics.csv
