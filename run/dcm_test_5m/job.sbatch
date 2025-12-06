@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=dcm_test_5m                  # Job name
 #SBATCH --account=gts-dt98                      # Tracking account
-#SBATCH -c 4                                    # Number of cores required
+#SBATCH -c 1                                    # Number of cores required
 #SBATCH --mem-per-cpu=1G                        # Memory per core
 #SBATCH --time=2-0:0:0                         # Duration of the job
 #SBATCH --qos=inferno                           # Queue name (where job is submitted)
@@ -9,7 +9,8 @@
 #SBATCH --mail-type=BEGIN,END,FAIL              # Mail preferences
 #SBATCH --mail-user=chung62@gatech.edu
 
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+# export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export OMP_NUM_THREADS=1
 
 # Go to the project directory
 cd /storage/home/hcoda1/5/chung62/projects/dynein-cell-model
