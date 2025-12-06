@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=dcm_test_5m                  # Job name
 #SBATCH --account=gts-dt98                      # Tracking account
-#SBATCH -c 4                                    # Number of cores required
+#SBATCH -c 1                                    # Number of cores required
 #SBATCH --mem-per-cpu=4G                        # Memory per core
-#SBATCH --time=0-16:0:0                         # Duration of the job
+#SBATCH --time=2-0:0:0                         # Duration of the job
 #SBATCH --qos=inferno                           # Queue name (where job is submitted)
 #SBATCH -o Report-%j.out                        # Combined output and error messages file (relative to where the job was submitted)
 #SBATCH --mail-type=BEGIN,END,FAIL              # Mail preferences
