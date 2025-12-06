@@ -1085,15 +1085,15 @@ void CellModel::diffuse_k0_adh() {
   Mat_d IC_new(sim_rows_, sim_cols_);
   Mat_d FC_new(sim_rows_, sim_cols_);
 
-  A_new = A_;
-  I_new = I_;
-  F_new = F_;
-  AC_new = AC_;
-  IC_new = IC_;
-  FC_new = FC_;
+  A_new = A_.eval();
+  I_new = I_.eval();
+  F_new = F_.eval();
+  AC_new = AC_.eval();
+  IC_new = IC_.eval();
+  FC_new = FC_.eval();
 
   for (int k = 0; k < diff_t_; k++) {
-    #pragma omp parallel for collapse(2)
+    #pragma omp parallel for schedule(static)
     for (int i = frame_row_start_; i <= frame_row_end_; i++) {
       for (int j = frame_col_start_; j <= frame_col_end_; j++) {
         if (cell_(i, j) == 1) {
