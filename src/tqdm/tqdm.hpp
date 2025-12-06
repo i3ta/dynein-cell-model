@@ -32,6 +32,7 @@
 #include <iterator>
 #include <sstream>
 #include <type_traits>
+#include <unistd.h>
 
 // -------------------- chrono stuff --------------------
 
@@ -121,8 +122,13 @@ private:
 
         std::stringstream bar;
 
-        bar << '\r' << prefix_ << '{' << std::fixed << std::setprecision(1)
-            << std::setw(5) << 100*progress << "%} ";
+        if (is_terminal) {
+            bar << '\r' << prefix_ << '{' << std::fixed << std::setprecision(1)
+                << std::setw(5) << 100*progress << "%} ";
+        } else {
+            bar << prefix_ << '{' << std::fixed << std::setprecision(1)
+                << std::setw(5) << 100*progress << "%}\n";
+        }
 
         print_bar(bar, progress);
 
@@ -161,6 +167,8 @@ private:
 
     std::string prefix_{};
     std::stringstream suffix_{};
+
+    const bool is_terminal = isatty(fileno(stdout));
 };
 
 
