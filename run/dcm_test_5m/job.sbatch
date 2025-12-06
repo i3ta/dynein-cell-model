@@ -20,4 +20,4 @@ cmake --build .
 
 # Run the program
 cd examples
-srun ./run_model_metrics ../../run/dcm_test_5m ../../run/dcm_test_5m/metrics.csv
+srun stdbuf -oL -eL ./run_model_metrics ../../run/dcm_test_5m ../../run/dcm_test_5m/metrics.csv
