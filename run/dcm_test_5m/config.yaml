@@ -38,7 +38,7 @@ AC_min: 0.044
 sim_rows: 1500
 sim_cols: 600
 seed: 0
-num_iters: 500001
+num_iters: 3001
 frame_padding: 20
 diff_t: 100
 save_t: 1000
