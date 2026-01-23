@@ -1,11 +1,11 @@
 #include <fstream>
-#include <string>
 #include <iostream>
 #include <opencv2/imgcodecs.hpp>
+#include <string>
 
 #include <metric_utils/metric_utils.hpp>
 
-void text_to_image(const std::string& file, const std::string& output_path);
+void text_to_image(const std::string &file, const std::string &output_path);
 
 int main(int argc, char *argv[]) {
   // timer for metrics
@@ -23,14 +23,15 @@ int main(int argc, char *argv[]) {
 }
 
 /**
- * @brief Read a binary (0/1) matrix from a text file and output a black–white image.
+ * @brief Read a binary (0/1) matrix from a text file and output a black–white
+ * image.
  *
  * File format:
  *   First number: number of rows
  *   Second number: number of columns
  *   Then: row-major order matrix entries (0 or 1)
  */
-void text_to_image(const std::string& file, const std::string& output_path) {
+void text_to_image(const std::string &file, const std::string &output_path) {
   int rows_num = 0, cols_num = 0;
   std::ifstream m_file(file);
   if (!m_file.is_open()) {

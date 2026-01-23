@@ -1,3 +1,4 @@
 add_subdirectory(dynein_cell_model)
 add_subdirectory(metric_utils)
 add_subdirectory(tqdm)
+add_subdirectory(cell_nuc)

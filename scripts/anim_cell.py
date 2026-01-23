@@ -22,7 +22,7 @@ def main(dir: str, output: str):
 
     fig, axs = plt.subplots(1, 2)
     im0 = axs[0].imshow(data_cell[0], interpolation="nearest", cmap="inferno")
-    im1 = axs[1].imshow(data_A[0], interpolation="nearest", cmap="inferno")
+    im1 = axs[1].imshow(data_A[0], interpolation="nearest", cmap="inferno", vmin=0.0, vmax=1.0)
     fig.suptitle(f"t = {dset_t[0]}")
 
     def animate(i):

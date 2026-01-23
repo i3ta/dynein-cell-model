@@ -1,12 +1,12 @@
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
-#include <filesystem>
 #include <vector>
 
-#include <opencv2/core/matx.hpp>
 #include <nlohmann/json.hpp>
+#include <opencv2/core/matx.hpp>
 
 #include <dynein_cell_model/dynein_cell_model.hpp>
 #include <metric_utils/metric_utils.hpp>
@@ -44,13 +44,21 @@ int main(int argc, char *argv[]) {
   dcm::CellModelConfig config(config_file.string());
 
   // parse masks
-  dcm::Mat_i nucleus_mask = dcm::matrix_from_mask(cell_file.string(), cv::Vec3b(127, 127, 127));
-  dcm::Mat_i cell_mask = dcm::matrix_from_mask(cell_file.string(), cv::Vec3b(255, 255, 255)) + nucleus_mask;
-  dcm::Mat_i env_mask = dcm::matrix_from_mask(env_file.string(), cv::Vec3b(255, 255, 255));
-  dcm::Mat_i A_init = dcm::matrix_from_mask(A_file.string(), cv::Vec3b(255, 255, 255));
-  dcm::Mat_i AC_init = dcm::matrix_from_mask(AC_file.string(), cv::Vec3b(255, 255, 255));
-  dcm::Mat_i I_init = dcm::matrix_from_mask(I_file.string(), cv::Vec3b(255, 255, 255));
-  dcm::Mat_i IC_init = dcm::matrix_from_mask(IC_file.string(), cv::Vec3b(255, 255, 255));
+  dcm::Mat_i nucleus_mask =
+      dcm::matrix_from_mask(cell_file.string(), cv::Vec3b(127, 127, 127));
+  dcm::Mat_i cell_mask =
+      dcm::matrix_from_mask(cell_file.string(), cv::Vec3b(255, 255, 255)) +
+      nucleus_mask;
+  dcm::Mat_i env_mask =
+      dcm::matrix_from_mask(env_file.string(), cv::Vec3b(255, 255, 255));
+  dcm::Mat_i A_init =
+      dcm::matrix_from_mask(A_file.string(), cv::Vec3b(255, 255, 255));
+  dcm::Mat_i AC_init =
+      dcm::matrix_from_mask(AC_file.string(), cv::Vec3b(255, 255, 255));
+  dcm::Mat_i I_init =
+      dcm::matrix_from_mask(I_file.string(), cv::Vec3b(255, 255, 255));
+  dcm::Mat_i IC_init =
+      dcm::matrix_from_mask(IC_file.string(), cv::Vec3b(255, 255, 255));
 
   // create cell
   dcm::CellModel cell(config);
@@ -65,12 +73,14 @@ int main(int argc, char *argv[]) {
 
   cell.init_adhesions();
 
-  std::cout << "Setup done. (" << timer.elapsed().count() << " ms)" << std::endl;
+  std::cout << "Setup done. (" << timer.elapsed().count() << " ms)"
+            << std::endl;
   std::vector<double> iter_times;
-  
-  std::cout << "Running iterations: " << config.num_iters_ << " iterations" << std::endl;
+
+  std::cout << "Running iterations: " << config.num_iters_ << " iterations"
+            << std::endl;
   auto A = tq::trange(config.num_iters_);
-  for (int i: A) {
+  for (int i : A) {
     timer.reset();
     cell.step();
     iter_times.push_back(timer.elapsed().count());
@@ -83,7 +93,8 @@ int main(int argc, char *argv[]) {
 
   Eigen::Map<dcm::Arr_d> iter_arr(iter_times.data(), iter_times.size());
   double mean = iter_arr.mean();
-  double stdev = sqrt((iter_arr - mean).square().sum() / (iter_times.size() - 1));
+  double stdev =
+      sqrt((iter_arr - mean).square().sum() / (iter_times.size() - 1));
   std::cout << "----- Summary -----\n";
   std::cout << "Mean: " << mean << " ms / it\n";
   std::cout << "Stdev: " << stdev << " ms / it\n";
@@ -91,7 +102,7 @@ int main(int argc, char *argv[]) {
   // Recording metrics for further optimization
   json metrics;
   metrics["iteration_times"] = json(iter_times);
-  
+
   std::ofstream metrics_file(metrics_file_path.string());
   metrics_file << std::setw(4) << metrics << std::endl;
   metrics_file.close();
