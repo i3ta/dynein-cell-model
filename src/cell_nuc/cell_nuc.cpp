@@ -1,7 +1,34 @@
+#include <algorithm>
 #include <cell_nuc/cell_nuc.hpp>
+#include <cmath>
+#include <cstdlib>
+#include <ctime>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <test_utils/test_utils.hpp>
+#include <vector>
+
+#ifdef LIB_CELL_NUC_DEBUG
+extern test_utils::DebugRand<double> drand;
+
+#undef rand
+#define rand() (static_cast<int>(drand() * 32767))
+inline constexpr bool LIB_CELL_NUC_DEBUG_CPP = true;
+#else
+#include <cstdlib>
 #include <random>
+inline constexpr bool LIB_CELL_NUC_DEBUG_CPP = false;
+#endif
 
 using namespace std;
+
+test_utils::DebugRand<double> drand;
+
+#define TRACE_MSG(msg)                                                         \
+  if constexpr (LIB_CELL_NUC_DEBUG_CPP)                                        \
+    std::cerr << "[ TRACE    ] [ LegacyModel ] " << msg << std::endl           \
+              << std::flush;
 
 void print_matrix(double **m, int rows_num, int cols_num) {
   for (int i = 0; i < rows_num; i++) {
@@ -149,7 +176,7 @@ double **text_frame_to_matrix_frame(string file, int &fr_rows_num,
   // position in this matrix file specification: contains numbers separated by
   // spaces first number: number of frame rows second number: number of frame
   // columns (position of the frame is described by coordinates of the upper
-  //left corner) third number: frame rows position fourth number: frame columns
+  // left corner) third number: frame rows position fourth number: frame columns
   // porition fifth number: number of rows in environment sixth number: number
   // of columns in environment all other numbers: consequence of numbers in the
   // frame, row by row
@@ -509,6 +536,8 @@ double **generate_dyn_field_protr(double **cell, double **nuc,
   // values at the surrounding location on the nucleus outline. Values are then
   // normalized between 0 and 1 to convert to probability.
 
+  TRACE_MSG("Getting all nucleus outline pixels...")
+
   // Create vector containing indices of all pixels on nucleus outline
   vector<vector<int>> nuc_inds;
   for (int i = fr_rows_pos; i < (fr_rows_pos + cell_rows); ++i) {
@@ -518,6 +547,8 @@ double **generate_dyn_field_protr(double **cell, double **nuc,
       }
     }
   }
+
+  TRACE_MSG("Initializing dyn field arrays...")
 
   // Calculate min distance from a given point on the cell edge to the nuc edge,
   // and write/project that distance value on the nucleus edge
@@ -529,8 +560,10 @@ double **generate_dyn_field_protr(double **cell, double **nuc,
   initiate_matrix_with_zeros(scaling_nuc, env_rows_num, env_cols_num);
   // DTmod end
 
-  for (int i = fr_rows_pos; i < (fr_rows_pos + cell_rows); ++i) {
-    for (int j = fr_cols_pos; j < (fr_cols_pos + cell_cols); ++j) {
+  TRACE_MSG("Calculating dyn field...")
+
+  for (int j = fr_cols_pos; j < (fr_cols_pos + cell_cols); ++j) {
+    for (int i = fr_rows_pos; i < (fr_rows_pos + cell_rows); ++i) {
       if (cell_outline[i][j] == 1) {
         // create vector with distance from cell edge pixel to each nuc edge
         // pixel
@@ -727,6 +760,8 @@ double **generate_dyn_field_retr(double **cell, double **nuc,
 
   return projected_nuc;
 }
+
+Cell::Cell() {}
 
 Cell::Cell(string config_file) {
 
@@ -1477,7 +1512,7 @@ void Cell::protrude_adh_nuc_push() {
         // cout << "geom: " << pow(
         //( Im[i-1][j] + Im[i][j+1] + Im[i+1][j] + Im[i][j-1] +
         //( Im[i-1][j-1] + Im[i-1][j+1] + Im[i+1][j+1] + Im[i+1][j-1] ) /
-        //pow(sqrt(2),g) ) / ( 4 + 4 / pow(sqrt(2),g) ), k) << endl;
+        // pow(sqrt(2),g) ) / ( 4 + 4 / pow(sqrt(2),g) ), k) << endl;
 
         // Implement nucleus push:
         if (outline_nuc[i][j] == 1) {
@@ -1540,14 +1575,21 @@ void Cell::protrude_nuc() {
   int cols_rand_idx[fr_cols_num - 2];
   for (int i = 1; i != fr_rows_num - 1; i++)
     rows_rand_idx[i - 1] = i + fr_rows_pos;
-  randomize(rows_rand_idx, fr_rows_num - 2);
   for (int i = 1; i != fr_cols_num - 1; i++)
     cols_rand_idx[i - 1] = i + fr_cols_pos;
-  randomize(cols_rand_idx, fr_cols_num - 2);
+  if constexpr (!LIB_CELL_NUC_DEBUG_CPP) {
+    randomize(rows_rand_idx, fr_rows_num - 2);
+    randomize(cols_rand_idx, fr_cols_num - 2);
+  } else {
+    TRACE_MSG("Initialized random values.")
+  }
 
+  TRACE_MSG("Initializing constants...")
   int i = 0;
   int j = 0;
   double V_cor = 1 / (1 + exp((V_nuc - V0_nuc) / T_nuc));
+
+  TRACE_MSG("Calculating nucleus perimeter...")
   // In addition to vol constraint add a roundness constraint. Calculated that
   // 4-neighbor outline of circle gives roundness of 10, should be minimum R0.
   int perim_nuc = outline_4(Im_nuc, fr_rows_num, fr_cols_num, fr_rows_pos,
@@ -1566,6 +1608,8 @@ void Cell::protrude_nuc() {
   //                                                    fr_cols_pos,
   //                                                    env_rows_num,
   //                                                    env_cols_num,AC);
+
+  TRACE_MSG("Generating dynein field...")
   double **dyn_f = generate_dyn_field_protr(
       Im, Im_nuc, inner_outline, outline_nuc, fr_rows_num, fr_cols_num,
       fr_rows_pos, fr_cols_pos, env_rows_num, env_cols_num, AC);
@@ -1573,15 +1617,18 @@ void Cell::protrude_nuc() {
 
   // cout << "protrude: made dmap" << endl;
 
+  TRACE_MSG("Attempting to protrude nucleus pixels...")
   double w = 0;
-  for (int ii = 0; ii < (fr_rows_num - 2); ii++) {
-    i = rows_rand_idx[ii];
-    for (int jj = 0; jj < (fr_cols_num - 2); jj++) {
-      j = cols_rand_idx[jj];
-      if (debug) {
-        i = ii;
-        j = jj;
+  for (int jj = 0; jj < (fr_cols_num - 2); jj++) {
+    j = cols_rand_idx[jj];
+    for (int ii = 0; ii < (fr_rows_num - 2); ii++) {
+      i = rows_rand_idx[ii];
+
+      if constexpr (LIB_CELL_NUC_DEBUG_CPP) {
+        i = ii + fr_rows_pos;
+        j = jj + fr_cols_pos;
       }
+
       if (outline_nuc[i][j] == 1 and
 
           not(outline[i][j] ==
@@ -1627,11 +1674,17 @@ void Cell::protrude_nuc() {
       }
     }
   }
+
+  TRACE_MSG("Freeing dynein field array...")
   free_array2d(dyn_f);
   // cout << "protrusion done" <<endl;
+
+  TRACE_MSG("Updating nucleus volume...")
   update_volume_nuc();
+  TRACE_MSG("Updating nucleus outline...")
   update_outline_nuc(); // updates outline and calculates number of pixels as
                         // perimeter
+  TRACE_MSG("Updating nucleus inner outline...")
   update_inner_outline_nuc();
 }
 
@@ -2454,7 +2507,7 @@ void Cell::update_k0_adh_new(double scalar) {
         k0_adh[i][j] =
             (k0 - k0_min) * scalar * adh_g[i][j] / norm_numer * norm_denom +
             k0_min; //********ADDED SCALAR TO INCREASE EFFECT OF ADHESION ON
-                    //LOCAL K0
+                    // LOCAL K0
       } else {
         k0_adh[i][j] = k0;
       }

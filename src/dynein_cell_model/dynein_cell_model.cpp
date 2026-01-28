@@ -1,11 +1,17 @@
+#ifndef DYNEIN_CELL_MODEL_CPP
+#define DYNEIN_CELL_MODEL_CPP
+
 #include <algorithm>
 #include <cmath>
 #include <deque>
 #include <fstream>
 #include <functional>
+#include <iostream>
 #include <map>
+#include <random>
 #include <stack>
 #include <stdexcept>
+#include <string>
 #include <unordered_set>
 
 #include <highfive/H5DataSet.hpp>
@@ -23,6 +29,23 @@
 
 #include <dynein_cell_model/dynein_cell_model.hpp>
 #include <metric_utils/metric_utils.hpp>
+#include <test_utils/test_utils.hpp>
+
+#ifdef LIB_DYNEIN_CELL_MODEL_DEBUG
+#include <test_utils/test_utils.hpp>
+
+extern test_utils::DebugRand<double> drand;
+#define prob_dist(rng) drand()
+
+inline constexpr bool DYNEIN_CELL_MODEL_DEBUG_CPP = true;
+#else
+inline constexpr bool DYNEIN_CELL_MODEL_DEBUG_CPP = false;
+#endif
+
+#define TRACE_MSG(msg)                                                         \
+  if constexpr (DYNEIN_CELL_MODEL_DEBUG_CPP)                                   \
+    std::cerr << "[ TRACE    ] [ DyneinCellModel ] " << msg << std::endl       \
+              << std::flush;
 
 #define TIME_AND_STORE(times, action)                                          \
   ;                                                                            \
@@ -203,6 +226,30 @@ void finalize(HighFive::File &file, std::map<std::string, size_t> &next_index,
     std::vector<size_t> dims = dset.getSpace().getDimensions();
     dset.resize({next_index[dataset], dims[1], dims[2]});
   }
+}
+
+inline std::vector<std::pair<int, int>> get_nonzero(const SpMat_i &mat) {
+  std::vector<std::pair<int, int>> coords;
+  for (int k = 0; k < mat.outerSize(); k++)
+    for (SpMat_i::InnerIterator it(mat, k); it; ++it)
+      coords.push_back({it.row(), it.col()});
+  return coords;
+}
+
+/**
+ * @brief Generate a random visit order for all of the nonzero pixels in the
+ * SpMat_i.
+ *
+ * @param mat SpMat_i to randomize pixels of
+ * @param rng std::mt19937 random number generator to use
+ *
+ * @return Vector of randomized order
+ */
+inline const std::vector<std::pair<int, int>>
+randomize_nonzero(const SpMat_i &mat, std::mt19937 &rng) {
+  auto coords = get_nonzero(mat);
+  std::shuffle(coords.begin(), coords.end(), rng);
+  return coords;
 }
 }; // namespace
 
@@ -705,7 +752,7 @@ void CellModel::init_adhesions() {
   }
 
   // Sample adhesions
-  std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
+  std::uniform_real_distribution<double> prob_dist{0.0, 1.0};
   int placed = 0;
 
   while (placed < adh_num_) {
@@ -780,7 +827,7 @@ void CellModel::protrude_nuc() {
 
   // randomize protrude order
   std::vector<std::pair<int, int>> protrude_coords =
-      randomize_nonzero(outline_nuc_);
+      randomize_nonzero(outline_nuc_, rng);
 
   // protrude
   for (int i = 0; i < protrude_coords.size(); i++) {
@@ -833,7 +880,7 @@ void CellModel::retract_nuc() {
 
   // randomize retract order
   std::vector<std::pair<int, int>> retract_coords =
-      randomize_nonzero(inner_outline_nuc_);
+      randomize_nonzero(inner_outline_nuc_, rng);
 
   // protrude
   for (int i = 0; i < retract_coords.size(); i++) {
@@ -888,8 +935,14 @@ void CellModel::protrude_nuc_dep() {
   const double C = 4.0 * (1.0 + n_diag);
 
   // randomize protrude order
-  std::vector<std::pair<int, int>> protrude_coords =
-      randomize_nonzero(outline_nuc_);
+  std::vector<std::pair<int, int>> protrude_coords;
+
+  if constexpr (DYNEIN_CELL_MODEL_DEBUG_CPP) {
+    // NOTE: If debug, use non-random column-major order
+    protrude_coords = get_nonzero(outline_nuc_);
+  } else {
+    protrude_coords = randomize_nonzero(outline_nuc_, rng);
+  }
 
   // generate dynein field for protrusion probability
   generate_dyn_field(false);
@@ -945,7 +998,7 @@ void CellModel::retract_nuc_dep() {
 
   // randomize retract order
   std::vector<std::pair<int, int>> retract_coords =
-      randomize_nonzero(inner_outline_nuc_);
+      randomize_nonzero(inner_outline_nuc_, rng);
 
   // protrude
   for (int i = 0; i < retract_coords.size(); i++) {
@@ -1069,7 +1122,7 @@ void CellModel::protrude() {
 
   // get random visiting order
   std::vector<std::pair<int, int>> protrude_coords =
-      randomize_nonzero(outline_);
+      randomize_nonzero(outline_, rng);
 
   // protrude
   for (int i = 0; i < protrude_coords.size(); i++) {
@@ -1146,7 +1199,7 @@ void CellModel::retract() {
 
   // get random visiting order
   std::vector<std::pair<int, int>> retract_coords =
-      randomize_nonzero(inner_outline_);
+      randomize_nonzero(inner_outline_, rng);
 
   // retract
   for (int i = 0; i < retract_coords.size(); i++) {
@@ -1531,7 +1584,7 @@ void CellModel::update_dyn_nuc_field() {
 
   // generate random starting order
   std::vector<std::pair<int, int>> nuc_coords =
-      randomize_nonzero(inner_outline_nuc_);
+      randomize_nonzero(inner_outline_nuc_, rng);
 
   // perform bfs and keep track of which pixel each pixel originated from,
   std::deque<std::pair<int, int>> q(nuc_coords.begin(), nuc_coords.end());
@@ -1803,17 +1856,6 @@ const std::vector<int> CellModel::generate_indices(const int n, const int lb,
   return std::vector<int>(arr.begin(), arr.begin() + n);
 }
 
-const std::vector<std::pair<int, int>>
-CellModel::randomize_nonzero(const SpMat_i mat) {
-  std::vector<std::pair<int, int>> coords;
-  for (int k = 0; k < mat.outerSize(); k++) {
-    for (SpMat_i::InnerIterator it(mat, k); it; ++it) {
-      coords.push_back({it.row(), it.col()});
-    }
-  }
-  std::shuffle(coords.begin(), coords.end(), rng);
-
-  return coords;
-}
-
 } // namespace dynein_cell_model
+
+#endif

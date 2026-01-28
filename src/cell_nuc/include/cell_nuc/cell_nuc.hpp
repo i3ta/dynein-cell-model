@@ -1,15 +1,8 @@
-#include <algorithm>
-#include <cmath>
 #include <cstdlib>
 #include <ctime>
-#include <fstream>
-#include <iostream>
 #include <string>
-#include <vector>
-using namespace std;
 
-#ifndef CELL_HPP
-#define CELL_HPP
+using namespace std;
 
 void print_matrix(double **m, int rows_num, int cols_num);
 
@@ -128,8 +121,8 @@ struct Cell {
   void protrude();
   void protrude_adh(); // protrusion weights that depend on adhesion field
   void
-  protrude_adh_nuc_push(); // protrusion weights that depend on adhesion field,
-                           // AND cell membrane can be pushed by nucleus
+  protrude_adh_nuc_push();  // protrusion weights that depend on adhesion field,
+                            // AND cell membrane can be pushed by nucleus
   void protrude_no_actin(); // protrusion, when actin weights are not taken into
                             // account
   void protrude_no_actin_prop_factor(); // differs from the above method by
@@ -137,7 +130,7 @@ struct Cell {
                                         // effect of scaling factor
   void protrude_k_heter(); // protrusion for heterogeneous values of k
   void protrude_A_prop();  // protrusion rate linearly depends on concentration
-                          // of A (normalized by A_max), no adhesion influence
+                           // of A (normalized by A_max), no adhesion influence
   void retract();
   void retract_no_actin(); // retraction, when actin weights are not taken into
                            // account
@@ -188,17 +181,17 @@ struct Cell {
   void update_inner_outline_nuc();
   void protrude_nuc(); // protrusion for cell nucleus where dynein forces &
                        // roundness taken into account
-  void retract_nuc(); // retraction for cell nucleus where dynein forces &
-                      // roundness taken into account
+  void retract_nuc();  // retraction for cell nucleus where dynein forces &
+                       // roundness taken into account
   void protrude_nuc_no_geo(); // same as protrude_nuc but no roundness (global
                               // geometry) factor
-  void retract_nuc_no_geo();     // same as retract_nuc but no roundness factor
+  void retract_nuc_no_geo();  // same as retract_nuc but no roundness factor
   void protrude_nuc_polarized(); // protrusion is polarized based on polarized
                                  // dynein field (assuming some cell protrusions
                                  // have strong dynein pulling forces)
-  void retract_nuc_polarized(); // retraction is polarized based on polariez
-                                // dynein field (assuming some cell protrusions
-                                // have strong dynein pulling forces)
+  void retract_nuc_polarized();  // retraction is polarized based on polariez
+                                 // dynein field (assuming some cell protrusions
+                                 // have strong dynein pulling forces)
 
   int th_num;          // number of threads to use for parallel computing
   unsigned int *seeds; // array of seeds to use rand_r() in parallel loops
@@ -227,8 +220,8 @@ struct Cell {
   // for polarized fuctuation in the cell I introduce the following parameters:
   double k_front; // at the front fluctuations are more intense and k must be
                   // smaller (notless then 1)
-  double k_back; // at the back fluctuations are less pronounced and k must be
-                 // bigger
+  double k_back;  // at the back fluctuations are less pronounced and k must be
+                  // bigger
   double g;
   double act_slope;
 
@@ -286,8 +279,8 @@ protrusion/retraction step we can get negative concentrations)*/
   double adh_basal_prot; // basal weight for protrusion in points distant from
                          // adhesions
 
-  int excite_num; // number of random points to excite (set specified
-                  // concentration of A in this points)
+  int excite_num;  // number of random points to excite (set specified
+                   // concentration of A in this points)
   double A_excite; // concentration of A to set in excited points
   // DTmod start
   double AC_excite; // concentration of A to set in excited points
@@ -332,7 +325,7 @@ protrusion/retraction step we can get negative concentrations)*/
   // DTmod end
   double **env; // matrix, that defines environment of the cell, 1 - something,
                 // that the cell can sence, 0 - if not
-  double **adh;   // adhesions, 1 - adhesion,  0 - no adhesion
+  double **adh; // adhesions, 1 - adhesion,  0 - no adhesion
   int *adh_r_pos; // array, containing row coordinates of adhesions
   int *adh_c_pos; // array, containing column coordinates of adhesions
   double **adh_g; // gaussian smoothing of discrete adhesion points
@@ -345,8 +338,4 @@ protrusion/retraction step we can get negative concentrations)*/
   double **CoM_track; /*matrix to track center of mass of the cell, contains
  integer numbers in points of CoM, user must specify the number (which should be
  the number of iteration to enumerate points of the track)*/
-
-  bool debug = true;
 };
-
-#endif

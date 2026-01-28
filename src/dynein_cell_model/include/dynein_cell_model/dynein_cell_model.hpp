@@ -11,6 +11,10 @@
 #include <highfive/H5File.hpp>
 #include <opencv2/core.hpp>
 
+namespace test_utils {
+class CellModelTest;
+} // namespace test_utils
+
 namespace dynein_cell_model {
 
 typedef Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>
@@ -32,6 +36,8 @@ typedef Eigen::ArrayXd Arr_d;
 Mat_i matrix_from_mask(std::string filepath, cv::Vec3b color);
 
 class CellModelConfig {
+  friend class CellModelTest;
+
 public:
   /**
    * @brief Set up config with default values
@@ -121,6 +127,8 @@ public:
 };
 
 class CellModel {
+  friend class test_utils::CellModelTest;
+
 public:
   /**
    * @brief Initialize the cell model with default parameters.
@@ -386,16 +394,6 @@ private:
   const std::vector<int> generate_indices(const int n, const int lb,
                                           const int ub);
 
-  /**
-   * @brief Generate a random visit order for all of the nonzero pixels in the
-   * SpMat_i.
-   *
-   * @param mat SpMat_i to randomize pixels of
-   *
-   * @return Vector of randomized order
-   */
-  const std::vector<std::pair<int, int>> randomize_nonzero(const SpMat_i mat);
-
   // Protrusion and retraction parameters
   double k_;     ///< Relative contribution of geometry factor to cell
                  ///< protrusion/retraction probability
@@ -516,7 +514,6 @@ private:
   std::string output_file_; ///< file to save cell states to
   std::unique_ptr<HighFive::File> results_;
   std::map<std::string, size_t> next_index_;
-
 }; // CellModel class
 
 }; // namespace dynein_cell_model

@@ -59,8 +59,7 @@ if(NOT TARGET HighFive::HighFive)
     )
     FetchContent_MakeAvailable(HighFive)
 endif()
-
-# -------- Local Metrics Library --------
-target_link_libraries(dynein_cell_model PRIVATE metric_utils)
-
 target_link_libraries(dynein_cell_model PUBLIC HighFive)
+
+# -------- Local Libraries --------
+target_link_libraries(dynein_cell_model PRIVATE metric_utils test_utils)
