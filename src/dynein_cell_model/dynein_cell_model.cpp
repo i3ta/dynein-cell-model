@@ -34,7 +34,7 @@
 #ifdef LIB_DYNEIN_CELL_MODEL_DEBUG
 #include <test_utils/test_utils.hpp>
 
-extern test_utils::DebugRand<double> drand;
+static test_utils::DebugRand<double> drand;
 #define prob_dist(rng) drand()
 
 inline constexpr bool DYNEIN_CELL_MODEL_DEBUG_CPP = true;
@@ -250,6 +250,31 @@ randomize_nonzero(const SpMat_i &mat, std::mt19937 &rng) {
   auto coords = get_nonzero(mat);
   std::shuffle(coords.begin(), coords.end(), rng);
   return coords;
+}
+
+int outline_4(const SpMat_i &outline_nuc, const Mat_i &nuc, int sim_rows,
+              int sim_cols) {
+  const int DR[4] = {-1, 0, 1, 0};
+  const int DC[4] = {0, -1, 0, 1};
+
+  int perim = 0;
+
+  for (int k = 0; k < outline_nuc.outerSize(); ++k) {
+    for (SpMat_i::InnerIterator it(outline_nuc, k); it; ++it) {
+      for (int i = 0; i < 4; i++) {
+        const int nr = it.row() + DR[i];
+        const int nc = it.col() + DC[i];
+        if (nr < 0 || nr >= sim_rows || nc < 0 || nc >= sim_cols)
+          continue;
+        if (nuc(nr, nc) == 1) {
+          perim++;
+          break;
+        }
+      }
+    }
+  }
+
+  return perim;
 }
 }; // namespace
 
@@ -929,9 +954,9 @@ void CellModel::retract_nuc() {
 void CellModel::protrude_nuc_dep() {
   // calculate probability coefficients
   const double V_cor = 1.0 / (1 + std::exp((V_nuc_ - V0_nuc_) / T_nuc_));
-  const double R = double(P_nuc_ * P_nuc_) / V_nuc_;
+  const double R = (P_nuc_ * P_nuc_) / V_nuc_;
   const double R_cor = 1.0 / (1 + std::exp((R - R0_) / R_nuc_));
-  const double n_diag = 1.0 / std::pow(M_SQRT1_2, g_);
+  const double n_diag = 1.0 / std::pow(M_SQRT2, g_);
   const double C = 4.0 * (1.0 + n_diag);
 
   // randomize protrude order
@@ -997,10 +1022,18 @@ void CellModel::retract_nuc_dep() {
   const double C = 4.0 * (1.0 + n_diag);
 
   // randomize retract order
-  std::vector<std::pair<int, int>> retract_coords =
-      randomize_nonzero(inner_outline_nuc_, rng);
+  std::vector<std::pair<int, int>> retract_coords;
+  if constexpr (DYNEIN_CELL_MODEL_DEBUG_CPP) {
+    // NOTE: If debug, use non-random column-major order
+    retract_coords = get_nonzero(outline_nuc_);
+  } else {
+    retract_coords = randomize_nonzero(outline_nuc_, rng);
+  }
 
-  // protrude
+  // generate dynein field for retraction probability
+  generate_dyn_field(true);
+
+  // retract
   for (int i = 0; i < retract_coords.size(); i++) {
     auto [r, c] = retract_coords[i];
 
@@ -1048,10 +1081,10 @@ void CellModel::generate_dyn_field(bool retract) {
   const int len = outline_nuc_.nonZeros();
   int n = len / (retract ? 6 : 30);
 
-  for (int k = 0; k < outline_.outerSize(); k++) {
-    for (SpMat_i::InnerIterator it(outline_, k); it; ++it) {
-      int r = it.row();
-      int c = it.col();
+  for (int k = 0; k < inner_outline_.outerSize(); k++) {
+    for (SpMat_i::InnerIterator it(inner_outline_, k); it; ++it) {
+      const int r = it.row();
+      const int c = it.col();
 
       // get nucleus pixel closest to current pixel
       int dist2 = 2e9;
@@ -1069,10 +1102,10 @@ void CellModel::generate_dyn_field(bool retract) {
       }
 
       double dist_f = std::sqrt(dist2) * std::max(AC_(r, c) - 0.1, 0.0);
-      for (int j = min_c - n; j <= min_c + n; ++j) {
+      for (int j = min_c - n; j < min_c + n; ++j) {
         if (j < 0 || j >= sim_cols_)
           continue;
-        for (int i = min_r - n; i <= min_r + n; ++i) {
+        for (int i = min_r - n; i < min_r + n; ++i) {
           if (i < 0 || i >= sim_rows_)
             continue;
           if (outline_nuc_.coeff(i, j) == 1) {
@@ -1330,8 +1363,8 @@ void CellModel::update_nuc() {
    * Iterate through nucleus pixels and add 4-neighbors that are not nucleus to
    * outer outline.
    */
-  const int DR[4] = {-1, 1, 0, 0};
-  const int DC[4] = {0, 0, -1, 1};
+  const int DR[8] = {-1, 1, 0, 0, -1, -1, 1, 1};
+  const int DC[8] = {0, 0, -1, 1, -1, 1, -1, 1};
 
   // Clear outlines
   outline_nuc_.setZero();
@@ -1347,16 +1380,19 @@ void CellModel::update_nuc() {
       for (int j = frame_col_start_; j <= frame_col_end_; j++) {
         if (nuc_(i, j) == 0)
           continue;
-        for (int k = 0; k < 4; k++) {
+        bool is_inner = false;
+        for (int k = 0; k < 8; k++) {
           const int nr = i + DR[k];
           const int nc = j + DC[k];
           if (nr < 0 || nr >= sim_rows_ || nc < 0 || nc >= sim_cols_)
             continue;
           if (nuc_(nr, nc) == 0) {
-            local_inner.insert({i, j});
+            is_inner = true;
             local_outer.insert({nr, nc});
           }
         }
+        if (is_inner)
+          local_inner.insert({i, j});
       }
     }
 
@@ -1374,7 +1410,7 @@ void CellModel::update_nuc() {
 
   // update nucleus volume and perimeter
   V_nuc_ = (nuc_.array() == 1).count();
-  P_nuc_ = outline_nuc_.nonZeros();
+  P_nuc_ = outline_4(outline_nuc_, nuc_, sim_rows_, sim_cols_);
 }
 
 void CellModel::update_cell() { update_cell(false); }

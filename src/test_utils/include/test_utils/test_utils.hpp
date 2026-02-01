@@ -1,10 +1,13 @@
 #ifndef TEST_UTILS_HPP
 #define TEST_UTILS_HPP
 
+#include <cstdlib>
+#include <iostream>
 #include <limits>
 #include <vector>
 
 #include <dynein_cell_model/dynein_cell_model.hpp>
+#include <gtest/gtest.h>
 
 namespace test_utils {
 namespace dcm = dynein_cell_model;
@@ -46,6 +49,10 @@ public:
   void init(const dcm::CellModelConfig &conf);
 
   void protrude_nuc_dep();
+
+  void retract_nuc_dep();
+
+  void generate_dyn_field(bool retract);
 
   void set_cell(const dcm::Mat_i cell);
 
@@ -95,10 +102,79 @@ public:
 
   const dcm::SpMat_i &get_inner_outline_nuc();
 
+  const dcm::Mat_d &get_dyn_f();
+
   const int get_AC_cor_sum();
 
   const int get_IC_cor_sum();
+
+  const int get_V_nuc();
+
+  const int get_P_nuc();
 }; // class CellModelTest
+
+class ModelTestBase : public ::testing::Test {
+protected:
+  int rows = 200;
+  int cols = 200;
+  dcm::CellModelConfig config;
+  std::vector<double **> legacy_pointers;
+
+  void SetUp() override {
+    config.sim_rows_ = rows;
+    config.sim_cols_ = cols;
+  }
+
+  void TearDown() override {
+    for (double **p : legacy_pointers) {
+      free(p);
+    }
+    legacy_pointers.clear();
+  }
+
+  // Helper to cleanup raw pointers in the format of the legacy model
+  void free_legacy(double **m) {
+    if (!m)
+      return;
+    delete[] m[0];
+    delete[] m;
+  }
+
+  // Helper to convert Eigen matrices to double matrices
+  double **eigen_to_raw(const dcm::Mat_d &mat) {
+    int r_num = mat.rows();
+    int c_num = mat.cols();
+
+    double **raw = new double *[r_num];
+
+    raw[0] = new double[r_num * c_num];
+
+    for (int i = 1; i < r_num; ++i) {
+      raw[i] = raw[i - 1] + c_num;
+    }
+
+    for (int i = 0; i < r_num; ++i) {
+      for (int j = 0; j < c_num; ++j) {
+        raw[i][j] = mat(i, j);
+      }
+    }
+
+    legacy_pointers.push_back(raw);
+
+    return raw;
+  }
+
+  void fill_circle(dcm::Mat_i &mat, int center_r, int center_c, int radius) {
+    for (int i = 0; i < rows; ++i) {
+      for (int j = 0; j < cols; ++j) {
+        if (std::sqrt(std::pow(i - center_r, 2) + std::pow(j - center_c, 2)) <=
+            radius) {
+          mat(i, j) = 1;
+        }
+      }
+    }
+  }
+};
 
 } // namespace test_utils
 

@@ -33,20 +33,22 @@ target_include_directories(dynein_cell_model PUBLIC ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(dynein_cell_model PRIVATE ${OpenCV_LIBS})
 
 # -------- yaml-cpp --------
-find_package(yaml-cpp QUIET)
-if(NOT yaml-cpp_FOUND)
-  message(STATUS "yaml-cpp not found, fetching with FetchContent")
-  include(FetchContent)
-  FetchContent_Declare(
-    yaml-cpp
-    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-    GIT_TAG 0.8.0
-  )
-  FetchContent_MakeAvailable(yaml-cpp)
-  target_link_libraries(dynein_cell_model PUBLIC yaml-cpp)
-else()
-  target_link_libraries(dynein_cell_model PUBLIC yaml-cpp)
+if(NOT TARGET yaml-cpp)
+    find_package(yaml-cpp QUIET)
+    if(NOT yaml-cpp_FOUND)
+        message(STATUS "yaml-cpp not found, fetching with FetchContent")
+        include(FetchContent)
+        FetchContent_Declare(
+            yaml-cpp
+            GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+            GIT_TAG 0.8.0
+        )
+        FetchContent_MakeAvailable(yaml-cpp)
+    endif()
 endif()
+
+# Link the target. FetchContent defines the 'yaml-cpp' target.
+target_link_libraries(dynein_cell_model PUBLIC yaml-cpp)
 
 # -------- HighFive --------
 if(NOT TARGET HighFive::HighFive)
@@ -55,7 +57,7 @@ if(NOT TARGET HighFive::HighFive)
     FetchContent_Declare(
       HighFive
       GIT_REPOSITORY https://github.com/highfive-devs/highfive.git
-      GIT_TAG        v2.8.0
+      GIT_TAG        v3.3.0
     )
     FetchContent_MakeAvailable(HighFive)
 endif()

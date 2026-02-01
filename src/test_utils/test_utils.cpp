@@ -10,6 +10,12 @@ void CellModelTest::init(const dcm::CellModelConfig &conf) {
 
 void CellModelTest::protrude_nuc_dep() { model.protrude_nuc_dep(); }
 
+void CellModelTest::retract_nuc_dep() { model.retract_nuc_dep(); }
+
+void CellModelTest::generate_dyn_field(bool retract) {
+  model.generate_dyn_field(retract);
+}
+
 void CellModelTest::set_cell(const dcm::Mat_i cell) { model.set_cell(cell); }
 
 void CellModelTest::set_nuc(const dcm::Mat_i nuc) { model.set_nuc(nuc); }
@@ -64,8 +70,14 @@ const dcm::SpMat_i &CellModelTest::get_inner_outline_nuc() {
   return model.inner_outline_nuc_;
 }
 
+const dcm::Mat_d &CellModelTest::get_dyn_f() { return model.dyn_f_; }
+
 const int CellModelTest::get_AC_cor_sum() { return model.AC_cor_sum_; }
 
 const int CellModelTest::get_IC_cor_sum() { return model.IC_cor_sum_; }
+
+const int CellModelTest::get_V_nuc() { return model.V_nuc_; }
+
+const int CellModelTest::get_P_nuc() { return model.P_nuc_; }
 
 }; // namespace test_utils

@@ -2,6 +2,15 @@ file(GLOB TEST_SOURCES "*.cpp")
 
 find_package(nlohmann_json REQUIRED)
 
+include(FetchContent)
+
+FetchContent_Declare(
+  yaml-cpp
+  GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+  GIT_TAG 0.8.0
+)
+FetchContent_MakeAvailable(yaml-cpp)
+
 foreach(test_src ${TEST_SOURCES})
     get_filename_component(test_name ${test_src} NAME_WE)
     add_executable(${test_name} ${test_src})
@@ -13,6 +22,7 @@ foreach(test_src ${TEST_SOURCES})
             test_utils
             tqdm
             nlohmann_json::nlohmann_json
+            yaml-cpp
     )
 endforeach()
 

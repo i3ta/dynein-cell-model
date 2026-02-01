@@ -83,17 +83,33 @@ double **place_matrix_on_big_canvas(double **m, int rows_num, int cols_num,
                                     size_t frame_rows_pos,
                                     size_t frame_cols_pos);
 
+// WARN: This function isn't used, a different function is defined and called in
+// the cpp file
 double **generate_dyn_field_protr(double **cell, double **nuc,
                                   double **cell_outline, double **nuc_outline,
                                   int cell_rows, int cell_cols, int fr_rows_pos,
                                   int fr_cols_pos, int env_rows_num,
                                   int env_cols_num);
 
+// NOTE: Actual used function
+double **generate_dyn_field_protr(double **cell, double **nuc,
+                                  double **cell_outline, double **nuc_outline,
+                                  int cell_rows, int cell_cols, int fr_rows_pos,
+                                  int fr_cols_pos, int env_rows_num,
+                                  int env_cols_num, double **AC);
+
 double **generate_dyn_field_retr(double **cell, double **nuc,
                                  double **cell_outline, double **nuc_outline,
                                  int cell_rows, int cell_cols, int fr_rows_pos,
                                  int fr_cols_pos, int env_rows_num,
                                  int env_cols_num);
+
+// NOTE: Actual used function
+double **generate_dyn_field_retr(double **cell, double **nuc,
+                                 double **cell_outline, double **nuc_outline,
+                                 int cell_rows, int cell_cols, int fr_rows_pos,
+                                 int fr_cols_pos, int env_rows_num,
+                                 int env_cols_num, double **AC);
 
 double **generate_dyn_field_protr_polarized(double **cell, double **nuc,
                                             double **cell_outline,
@@ -338,4 +354,6 @@ protrusion/retraction step we can get negative concentrations)*/
   double **CoM_track; /*matrix to track center of mass of the cell, contains
  integer numbers in points of CoM, user must specify the number (which should be
  the number of iteration to enumerate points of the track)*/
+
+  double **test_dyn_f;
 };

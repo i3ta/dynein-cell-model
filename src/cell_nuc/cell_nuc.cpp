@@ -10,10 +10,10 @@
 #include <vector>
 
 #ifdef LIB_CELL_NUC_DEBUG
-extern test_utils::DebugRand<double> drand;
+static test_utils::DebugRand<double> drand;
 
 #undef rand
-#define rand() (static_cast<int>(drand() * 32767))
+#define rand() (static_cast<int>(drand() * RAND_MAX))
 inline constexpr bool LIB_CELL_NUC_DEBUG_CPP = true;
 #else
 #include <cstdlib>
@@ -22,8 +22,6 @@ inline constexpr bool LIB_CELL_NUC_DEBUG_CPP = false;
 #endif
 
 using namespace std;
-
-test_utils::DebugRand<double> drand;
 
 #define TRACE_MSG(msg)                                                         \
   if constexpr (LIB_CELL_NUC_DEBUG_CPP)                                        \
@@ -536,19 +534,15 @@ double **generate_dyn_field_protr(double **cell, double **nuc,
   // values at the surrounding location on the nucleus outline. Values are then
   // normalized between 0 and 1 to convert to probability.
 
-  TRACE_MSG("Getting all nucleus outline pixels...")
-
   // Create vector containing indices of all pixels on nucleus outline
   vector<vector<int>> nuc_inds;
-  for (int i = fr_rows_pos; i < (fr_rows_pos + cell_rows); ++i) {
-    for (int j = fr_cols_pos; j < (fr_cols_pos + cell_cols); ++j) {
+  for (int j = fr_cols_pos; j < (fr_cols_pos + cell_cols); ++j) {
+    for (int i = fr_rows_pos; i < (fr_rows_pos + cell_rows); ++i) {
       if (nuc_outline[i][j] == 1) {
         nuc_inds.push_back({i, j});
       }
     }
   }
-
-  TRACE_MSG("Initializing dyn field arrays...")
 
   // Calculate min distance from a given point on the cell edge to the nuc edge,
   // and write/project that distance value on the nucleus edge
@@ -559,8 +553,6 @@ double **generate_dyn_field_protr(double **cell, double **nuc,
   double **scaling_nuc = create_array2d(env_rows_num, env_cols_num);
   initiate_matrix_with_zeros(scaling_nuc, env_rows_num, env_cols_num);
   // DTmod end
-
-  TRACE_MSG("Calculating dyn field...")
 
   for (int j = fr_cols_pos; j < (fr_cols_pos + cell_cols); ++j) {
     for (int i = fr_rows_pos; i < (fr_rows_pos + cell_rows); ++i) {
@@ -593,13 +585,14 @@ double **generate_dyn_field_protr(double **cell, double **nuc,
         //  DTmode end
         int new_r = nuc_inds[idx][0];
         int new_c = nuc_inds[idx][1];
+
         int n = len / 30; // len = 2*pi*r, so radius = len/(2*pi) so len/30 is
                           // about one fifth the radius
-        for (int r = (new_r - n); r < (new_r + n); ++r) {
-          if (r < 0 || r >= env_rows_num)
+        for (int c = (new_c - n); c < (new_c + n); ++c) {
+          if (c < 0 || c >= env_cols_num)
             continue;
-          for (int c = (new_c - n); c < (new_c + n); ++c) {
-            if (c < 0 || c >= env_cols_num)
+          for (int r = (new_r - n); r < (new_r + n); ++r) {
+            if (r < 0 || r >= env_rows_num)
               continue;
             if (nuc_outline[r][c] == 1) {
               projected_nuc[r][c] += dist_val;
@@ -628,7 +621,8 @@ double **generate_dyn_field_protr(double **cell, double **nuc,
     }
   }
 
-  // Normalize each element between 0 and 1 so they are now probability values
+  // Normalize each element between 0 and 1 so they are now probability
+  // values
   for (int i = fr_rows_pos; i < (fr_rows_pos + cell_rows); ++i) {
     for (int j = fr_cols_pos; j < (fr_cols_pos + cell_cols); ++j) {
       // projected_nuc[i][j] = (projected_nuc[i][j] - minVal) / (maxVal -
@@ -639,9 +633,12 @@ double **generate_dyn_field_protr(double **cell, double **nuc,
       }
     }
   }
+
   // DTmod start
   free_array2d(scaling_nuc);
   // DTmod end
+
+  TRACE_MSG("Returning...")
   return projected_nuc;
 }
 
@@ -1303,34 +1300,36 @@ Cell::Cell(string config_file) {
 }
 
 Cell::~Cell() {
-  free_array2d(Im);
-  free_array2d(Im_nuc);
-  free_array2d(A);
-  free_array2d(I);
-  free_array2d(F);
-  free_array2d(A_new);
-  free_array2d(I_new);
-  free_array2d(F_new);
-  // DTmod start
-  free_array2d(AC);
-  free_array2d(IC);
-  free_array2d(FC);
-  free_array2d(AC_new);
-  free_array2d(IC_new);
-  free_array2d(FC_new);
-  // DTmod end
-  free_array2d(outline);
-  free_array2d(inner_outline);
-  free_array2d(outline_nuc);
-  free_array2d(inner_outline_nuc);
-  free_array2d(adh);
-  free_array2d(adh_g);
-  free_array2d(adh_f);
-  free_array2d(env);
-  free_array2d(k0_adh);
-  free_array2d(CoM_track);
-  delete[] adh_r_pos;
-  delete[] adh_c_pos;
+  if constexpr (!LIB_CELL_NUC_DEBUG_CPP) {
+    free_array2d(Im);
+    free_array2d(Im_nuc);
+    free_array2d(A);
+    free_array2d(I);
+    free_array2d(F);
+    free_array2d(A_new);
+    free_array2d(I_new);
+    free_array2d(F_new);
+    // DTmod start
+    free_array2d(AC);
+    free_array2d(IC);
+    free_array2d(FC);
+    free_array2d(AC_new);
+    free_array2d(IC_new);
+    free_array2d(FC_new);
+    // DTmod end
+    free_array2d(outline);
+    free_array2d(inner_outline);
+    free_array2d(outline_nuc);
+    free_array2d(inner_outline_nuc);
+    free_array2d(adh);
+    free_array2d(adh_g);
+    free_array2d(adh_f);
+    free_array2d(env);
+    free_array2d(k0_adh);
+    free_array2d(CoM_track);
+    delete[] adh_r_pos;
+    delete[] adh_c_pos;
+  }
 }
 
 void Cell::update_volume() {
@@ -1599,6 +1598,7 @@ void Cell::protrude_nuc() {
       1 / (1 + exp((R - R0) /
                    R_nuc)); // R_cor is lower when R is large (non-circular),
                             // less protrusion when less circular
+  auto C = 4 + 4 / pow(sqrt(2), g);
 
   // DTmod start
   // double ** dyn_f = generate_dyn_field_protr(Im,Im_nuc,outline,outline_nuc,
@@ -1613,6 +1613,7 @@ void Cell::protrude_nuc() {
   double **dyn_f = generate_dyn_field_protr(
       Im, Im_nuc, inner_outline, outline_nuc, fr_rows_num, fr_cols_num,
       fr_rows_pos, fr_cols_pos, env_rows_num, env_cols_num, AC);
+  test_dyn_f = dyn_f;
   // DTmod end
 
   // cout << "protrude: made dmap" << endl;
@@ -1648,14 +1649,14 @@ void Cell::protrude_nuc() {
               (Im_nuc[i - 1][j] == 0 and Im_nuc[i + 1][j] == 0 and
                Im_nuc[i][j - 1] == 1 and Im_nuc[i][j + 1] == 1))) {
 
-        w = pow((Im_nuc[i - 1][j] + Im_nuc[i][j + 1] + Im_nuc[i + 1][j] +
-                 Im_nuc[i][j - 1] +
-                 (Im_nuc[i - 1][j - 1] + Im_nuc[i - 1][j + 1] +
-                  Im_nuc[i + 1][j + 1] + Im_nuc[i + 1][j - 1]) /
-                     pow(sqrt(2), g)) /
-                    (4 + 4 / pow(sqrt(2), g)),
-                k_nuc) *
-            R_cor * V_cor * (d_basal + (1 - d_basal) * dyn_f[i][j]);
+        const double n = (Im_nuc[i - 1][j] + Im_nuc[i][j + 1] +
+                          Im_nuc[i + 1][j] + Im_nuc[i][j - 1] +
+                          (Im_nuc[i - 1][j - 1] + Im_nuc[i - 1][j + 1] +
+                           Im_nuc[i + 1][j + 1] + Im_nuc[i + 1][j - 1]) /
+                              pow(sqrt(2), g));
+        w = pow(n / (4 + 4 / pow(sqrt(2), g)), k_nuc) * R_cor * V_cor *
+            (d_basal + (1 - d_basal) * dyn_f[i][j]);
+
         // reference from protrusion_adh()
         //  ( 1 - act_slope + act_slope * A_average / A_max ) : when A_avg is
         //  higher, w (prob of prot) is higher
@@ -1675,8 +1676,9 @@ void Cell::protrude_nuc() {
     }
   }
 
-  TRACE_MSG("Freeing dynein field array...")
-  free_array2d(dyn_f);
+  if constexpr (!LIB_CELL_NUC_DEBUG_CPP) {
+    free_array2d(dyn_f);
+  }
   // cout << "protrusion done" <<endl;
 
   TRACE_MSG("Updating nucleus volume...")
