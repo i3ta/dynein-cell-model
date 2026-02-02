@@ -12,6 +12,19 @@ namespace dcm = dynein_cell_model;
 class CompModelTest : public test_utils::ModelTestBase {};
 
 TEST_F(CompModelTest, DiffuseK0AdhPrecisionTest) {
+  TRACE_MSG("Initializing RNG...");
+  test_utils::DebugRand<double> drand;
+  std::vector<double> mock_probs;
+  mock_probs.reserve(1000);
+
+  std::mt19937 temp_engine(42); // Fixed seed
+  std::uniform_real_distribution<double> dist(0.0, 1.0);
+  for (int i = 0; i < 1000; ++i) {
+    mock_probs.push_back(dist(temp_engine));
+  }
+
+  drand.set_outputs(std::move(mock_probs));
+
   int rows = 200;
   int cols = 200;
 
@@ -50,6 +63,7 @@ TEST_F(CompModelTest, DiffuseK0AdhPrecisionTest) {
 
   dcm::Mat_d init_fields =
       dcm::Mat_d::Constant(rows, cols, (A_max + A_min) / 2.0);
+  modern.set_env(dcm::Mat_i::Constant(rows, cols, 1).sparseView());
   modern.set_A(init_fields);
   modern.set_I(init_fields);
   modern.set_F(init_fields);
@@ -58,11 +72,15 @@ TEST_F(CompModelTest, DiffuseK0AdhPrecisionTest) {
   modern.set_FC(init_fields);
   modern.set_k0_adh(dcm::Mat_d::Constant(rows, cols, config.k0_));
 
+  modern.rearrange_adhesions(false, true); // initialize adhesions
+
   TRACE_MSG("Syncing Legacy Parameters...");
   sync_params(legacy, config);
 
   legacy.Im_nuc = eigen_to_raw(nuc_mask.cast<double>());
   legacy.Im = eigen_to_raw(cell_mask.cast<double>());
+  legacy.k0_adh = eigen_to_raw(modern.get_k0_adh());
+  legacy.adh = eigen_to_raw(modern.get_adh().cast<double>());
   legacy.A = eigen_to_raw(modern.get_A());
   legacy.I = eigen_to_raw(modern.get_I());
   legacy.F = eigen_to_raw(modern.get_F());
@@ -75,7 +93,10 @@ TEST_F(CompModelTest, DiffuseK0AdhPrecisionTest) {
   legacy.AC_new = create_array2d(rows, cols);
   legacy.IC_new = create_array2d(rows, cols);
   legacy.FC_new = create_array2d(rows, cols);
-  legacy.k0_adh = eigen_to_raw(modern.get_k0_adh());
+
+  int **adh_pos = eigen_to_int(modern.get_adh_pos());
+  legacy.adh_r_pos = adh_pos[0];
+  legacy.adh_c_pos = adh_pos[1];
 
   TRACE_MSG("Executing modern diffuse_k0_adh...");
   modern.diffuse_k0_adh();

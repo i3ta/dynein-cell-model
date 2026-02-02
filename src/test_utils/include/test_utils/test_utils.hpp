@@ -49,6 +49,9 @@ public:
 
   void init(const dcm::CellModelConfig &conf);
 
+  void rearrange_adhesions(const bool bias = false,
+                           const bool rearrange_all = false);
+
   void protrude();
 
   void protrude_nuc_dep();
@@ -87,6 +90,8 @@ public:
   const dcm::Mat_i &get_nuc();
 
   const dcm::SpMat_i &get_adh();
+
+  const dcm::Mat_i &get_adh_pos();
 
   const dcm::Mat_d &get_A();
 
@@ -131,6 +136,7 @@ protected:
   int cols = 200;
   dcm::CellModelConfig config;
   std::vector<double **> legacy_pointers;
+  std::vector<int **> legacy_pointers_int;
 
   void SetUp() override {
     config.sim_rows_ = rows;
@@ -141,7 +147,11 @@ protected:
     for (double **p : legacy_pointers) {
       free(p);
     }
+    for (int **p : legacy_pointers_int) {
+      free(p);
+    }
     legacy_pointers.clear();
+    legacy_pointers_int.clear();
   }
 
   // Helper to cleanup raw pointers in the format of the legacy model
@@ -172,6 +182,28 @@ protected:
     }
 
     legacy_pointers.push_back(raw);
+
+    return raw;
+  }
+
+  int **eigen_to_int(const dcm::Mat_i &mat) {
+    int r_num = mat.rows();
+    int c_num = mat.cols();
+
+    int **raw = new int *[r_num];
+    raw[0] = new int[r_num * c_num];
+
+    for (int i = 1; i < r_num; ++i) {
+      raw[i] = raw[i - 1] + c_num;
+    }
+
+    for (int i = 0; i < r_num; ++i) {
+      for (int j = 0; j < c_num; ++j) {
+        raw[i][j] = mat(i, j);
+      }
+    }
+
+    legacy_pointers_int.push_back(raw);
 
     return raw;
   }

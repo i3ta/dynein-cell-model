@@ -209,7 +209,8 @@ public:
    * @param bias Whether polarization should be used to determine rearrangement
    * distribution
    */
-  void rearrange_adhesions(bool bias = false);
+  void rearrange_adhesions(const bool bias = false,
+                           const bool rearrange_all = false);
 
   /**
    * @brief Initialize the adhesion points around the cell to simulate evolution

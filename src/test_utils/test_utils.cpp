@@ -8,6 +8,11 @@ void CellModelTest::init(const dcm::CellModelConfig &conf) {
   model.update_config(conf);
 }
 
+void CellModelTest::rearrange_adhesions(const bool bias,
+                                        const bool rearrange_all) {
+  model.rearrange_adhesions(bias, rearrange_all);
+}
+
 void CellModelTest::protrude() { model.protrude(); }
 
 void CellModelTest::protrude_nuc_dep() { model.protrude_nuc_dep(); }
@@ -51,6 +56,8 @@ const dcm::Mat_i &CellModelTest::get_cell() { return model.cell_; }
 const dcm::Mat_i &CellModelTest::get_nuc() { return model.nuc_; }
 
 const dcm::SpMat_i &CellModelTest::get_adh() { return model.adh_; }
+
+const dcm::Mat_i &CellModelTest::get_adh_pos() { return model.adh_pos_; }
 
 const dcm::Mat_d &CellModelTest::get_A() { return model.A_; }
 

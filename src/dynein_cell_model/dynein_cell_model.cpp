@@ -642,7 +642,7 @@ void CellModel::save_state() {
   append_dataset(*results_, next_index_, "adh", adh_, true);
 }
 
-void CellModel::rearrange_adhesions(bool bias) {
+void CellModel::rearrange_adhesions(const bool bias, const bool rearrange_all) {
   /**
    * The logic behind this function is to move some number of adhesions to new
    * spots with polarization. To optimize this function, we perform as much
@@ -658,8 +658,8 @@ void CellModel::rearrange_adhesions(bool bias) {
    * CDF has to be resampled is very low.
    */
 
-  const int rearrange_adh =
-      int(adh_num_ * adh_frac_); // number of adhesions to rearrange
+  const int rearrange_adh = // number of adhesions to rearrange
+      rearrange_all ? adh_num_ : int(adh_num_ * adh_frac_);
   const int rows = frame_row_end_ - frame_row_start_ + 1;
   const int cols = frame_col_end_ - frame_col_start_ + 1;
   const int frame_size = rows * cols;
@@ -684,6 +684,7 @@ void CellModel::rearrange_adhesions(bool bias) {
 
   if (!bias || A_sum == 0) {
     // if no A signal, assume uniform probability
+    A_sum = 0;
     for (int i = 0, r = frame_row_start_; r <= frame_row_end_; i++, r++) {
       for (int j = 0, c = frame_col_start_; c <= frame_col_end_; j++, c++) {
         if (env_.coeff(r, c) == 1 && cell_(r, c) == 1) {
@@ -706,7 +707,7 @@ void CellModel::rearrange_adhesions(bool bias) {
       // generate random probability and find index in cumulative sum
       const double p = prob_dist(rng);
       const auto idx_it =
-          prev(std::upper_bound(A_lin.begin(), A_lin.end(), A_sum * p));
+          std::lower_bound(A_lin.begin(), A_lin.end(), A_sum * p);
       const int idx = idx_it - A_lin.begin();
 
       // convert index to row and column
@@ -1522,7 +1523,7 @@ void CellModel::diffuse_k0_adh() {
   FC_new = FC_.eval();
 
   for (int k = 0; k < diff_t_; k++) {
-#pragma omp parallel for schedule(static)
+    // #pragma omp parallel for schedule(static)
     for (int i = frame_row_start_; i <= frame_row_end_; i++) {
       for (int j = frame_col_start_; j <= frame_col_end_; j++) {
         if (cell_(i, j) == 1) {
