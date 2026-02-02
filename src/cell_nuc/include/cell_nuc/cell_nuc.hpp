@@ -2,6 +2,9 @@
 #include <ctime>
 #include <string>
 
+#ifndef CELL_NUC_HPP
+#define CELL_NUC_HPP
+
 using namespace std;
 
 void print_matrix(double **m, int rows_num, int cols_num);
@@ -357,3 +360,5 @@ protrusion/retraction step we can get negative concentrations)*/
 
   double **test_dyn_f;
 };
+
+#endif

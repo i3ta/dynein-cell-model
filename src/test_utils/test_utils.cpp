@@ -8,6 +8,8 @@ void CellModelTest::init(const dcm::CellModelConfig &conf) {
   model.update_config(conf);
 }
 
+void CellModelTest::protrude() { model.protrude(); }
+
 void CellModelTest::protrude_nuc_dep() { model.protrude_nuc_dep(); }
 
 void CellModelTest::retract_nuc_dep() { model.retract_nuc_dep(); }
@@ -17,6 +19,8 @@ void CellModelTest::generate_dyn_field(const dcm::SpMat_i &cell_outline,
                                        bool retract) {
   model.generate_dyn_field(cell_outline, nuc_outline, retract);
 }
+
+void CellModelTest::diffuse_k0_adh() { model.diffuse_k0_adh(); }
 
 void CellModelTest::set_cell(const dcm::Mat_i cell) { model.set_cell(cell); }
 
@@ -38,6 +42,10 @@ void CellModelTest::set_FC(const dcm::Mat_d FC) { model.set_FC(FC); }
 
 void CellModelTest::set_env(const dcm::SpMat_i env) { model.set_env(env); }
 
+void CellModelTest::set_k0_adh(const dcm::Mat_d k0_adh) {
+  model.k0_adh_ = k0_adh;
+}
+
 const dcm::Mat_i &CellModelTest::get_cell() { return model.cell_; }
 
 const dcm::Mat_i &CellModelTest::get_nuc() { return model.nuc_; }
@@ -55,6 +63,8 @@ const dcm::Mat_d &CellModelTest::get_IC() { return model.IC_; }
 const dcm::Mat_d &CellModelTest::get_F() { return model.F_; }
 
 const dcm::Mat_d &CellModelTest::get_FC() { return model.FC_; }
+
+const dcm::Mat_d &CellModelTest::get_k0_adh() { return model.k0_adh_; }
 
 const dcm::SpMat_i &CellModelTest::get_env() { return model.env_; }
 
@@ -77,6 +87,8 @@ const dcm::Mat_d &CellModelTest::get_dyn_f() { return model.dyn_f_; }
 const double CellModelTest::get_AC_cor_sum() { return model.AC_cor_sum_; }
 
 const double CellModelTest::get_IC_cor_sum() { return model.IC_cor_sum_; }
+
+const int CellModelTest::get_V() { return model.V_; }
 
 const int CellModelTest::get_V_nuc() { return model.V_nuc_; }
 

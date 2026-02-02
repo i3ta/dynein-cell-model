@@ -96,97 +96,33 @@ TEST_F(CompModelTest, ProtrudeNucConsistency) {
   TRACE_MSG("Checking Global State Parity...");
   EXPECT_EQ(legacy.V_nuc, modern.get_V_nuc()) << "Nucleus volume mismatch";
 
-  TRACE_MSG("Loop 1/6: Checking Initial Nucleus Mask (Im_nuc)...");
-  int nuc_mismatches = 0;
-  for (int i = 0; i < rows; ++i) {
-    for (int j = 0; j < cols; ++j) {
-      if ((int)legacy.Im_nuc[i][j] != modern.get_nuc()(i, j)) {
-        if (nuc_mismatches < 10) { // Limit logging to avoid wall of text
-          std::cout << "  Im_nuc Mismatch at (" << i << "," << j << ") - "
-                    << "Legacy: " << (int)legacy.Im_nuc[i][j]
-                    << ", Modern: " << modern.get_nuc()(i, j) << std::endl;
-        }
-        nuc_mismatches++;
-      }
-    }
-  }
-  EXPECT_EQ(nuc_mismatches, 0)
-      << "Nucleus masks do not match. Fix this before checking outlines.";
+  TRACE_MSG("Loop 1/6: Checking Initial Nucleus Mask...");
+  test_mat(legacy.Im_nuc, modern.get_nuc(), "Nucleus");
 
-  TRACE_MSG("Loop 2/6: Checking Outer Outline (outline_nuc)...");
-  int outer_mismatches = 0;
-  for (int i = 0; i < rows; ++i) {
-    for (int j = 0; j < cols; ++j) {
-      int leg_val = (int)legacy.outline_nuc[i][j];
-      int mod_val = (int)modern.get_outline_nuc().coeff(i, j);
-      if (leg_val != mod_val) {
-        if (outer_mismatches < 10) {
-          std::cout << "  Outline Mismatch at (" << i << "," << j << ") - "
-                    << "Legacy: " << leg_val << ", Modern: " << mod_val
-                    << std::endl;
-        }
-        outer_mismatches++;
-      }
-    }
-  }
-  EXPECT_EQ(outer_mismatches, 0)
-      << "Outer outlines do not match. Check connectivity (4 vs 8 neighbors).";
+  TRACE_MSG("Loop 2/6: Checking Outer Outline...");
+  test_outline(legacy.outline_nuc, modern.get_outline_nuc(), "Nucleus Outline");
 
-  TRACE_MSG("Loop 3/6: Checking Inner Outline (inner_outline_nuc)...");
-  int inner_mismatches = 0;
-  for (int i = 0; i < rows; ++i) {
-    for (int j = 0; j < cols; ++j) {
-      int leg_val = (int)legacy.inner_outline_nuc[i][j];
-      int mod_val = (int)modern.get_inner_outline_nuc().coeff(i, j);
-      if (leg_val != mod_val) {
-        if (inner_mismatches < 10) {
-          std::cout << "  Inner Outline Mismatch at (" << i << "," << j
-                    << ") - "
-                    << "Legacy: " << leg_val << ", Modern: " << mod_val
-                    << std::endl;
-        }
-        inner_mismatches++;
-      }
-    }
-  }
-  EXPECT_EQ(inner_mismatches, 0) << "Inner outlines do not match.";
+  TRACE_MSG("Loop 3/6: Checking Inner Outline...");
+  test_outline(legacy.inner_outline_nuc, modern.get_inner_outline_nuc(),
+               "Nucleus Inner Outline");
 
-  TRACE_MSG("Loop 4/6: Checking AC (Actin Concentration)...");
-  for (int i = 0; i < rows; ++i) {
-    for (int j = 0; j < cols; ++j) {
-      EXPECT_NEAR(legacy.AC[i][j], modern.get_AC()(i, j), 1e-8)
-          << "AC mismatch at (" << i << "," << j << ")";
-    }
-  }
+  TRACE_MSG("Loop 4/6: Checking AC...");
+  test_mat_near(legacy.AC, modern.get_AC(), "AC");
 
-  TRACE_MSG("Loop 5/6: Checking IC (Inhibitor Concentration)...");
-  for (int i = 0; i < rows; ++i) {
-    for (int j = 0; j < cols; ++j) {
-      EXPECT_NEAR(legacy.IC[i][j], modern.get_IC()(i, j), 1e-8)
-          << "IC mismatch at (" << i << "," << j << ")";
-    }
-  }
+  TRACE_MSG("Loop 5/6: Checking IC...");
+  test_mat_near(legacy.IC, modern.get_IC(), "IC");
 
-  TRACE_MSG("Loop 6/6: Checking FC (Force Correlation)...");
-  for (int i = 0; i < rows; ++i) {
-    for (int j = 0; j < cols; ++j) {
-      EXPECT_NEAR(legacy.FC[i][j], modern.get_FC()(i, j), 1e-8)
-          << "FC mismatch at (" << i << "," << j << ")";
-    }
-  }
+  TRACE_MSG("Loop 6/6: Checking FC...");
+  test_mat_near(legacy.FC, modern.get_FC(), "FC");
+
+  TRACE_MSG("Comparing Dynein Field Outputs...");
+  test_mat_near(legacy.test_dyn_f, modern.get_dyn_f(), "dyn_f");
 
   TRACE_MSG("Checking Coordination Sum Parity...");
   EXPECT_NEAR(legacy.AC_cor_sum, modern.get_AC_cor_sum(), 1e-8)
       << "AC_cor_sum mismatch";
   EXPECT_NEAR(legacy.IC_cor_sum, modern.get_IC_cor_sum(), 1e-8)
       << "IC_cor_sum mismatch";
-
-  TRACE_MSG("Comparing Dynein Field Outputs...");
-  for (int i = 1; i < rows - 1; ++i) {
-    for (int j = 1; j < cols - 1; ++j) {
-      EXPECT_NEAR(legacy.test_dyn_f[i][j], modern.get_dyn_f()(i, j), 1e-8);
-    }
-  }
 
   TRACE_MSG("Test Finished Successfully.");
 }

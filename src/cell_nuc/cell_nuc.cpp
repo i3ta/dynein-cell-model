@@ -1431,15 +1431,19 @@ void Cell::update_inner_outline_nuc() {
 }
 
 void Cell::protrude_adh_nuc_push() {
+  TRACE_MSG("Initializing order...");
   int rows_rand_idx[fr_rows_num - 2];
   int cols_rand_idx[fr_cols_num - 2];
   for (int i = 1; i != fr_rows_num - 1; i++)
     rows_rand_idx[i - 1] = i + fr_rows_pos;
-  randomize(rows_rand_idx, fr_rows_num - 2);
   for (int i = 1; i != fr_cols_num - 1; i++)
     cols_rand_idx[i - 1] = i + fr_cols_pos;
-  randomize(cols_rand_idx, fr_cols_num - 2);
+  if constexpr (!LIB_CELL_NUC_DEBUG_CPP) {
+    randomize(rows_rand_idx, fr_rows_num - 2);
+    randomize(cols_rand_idx, fr_cols_num - 2);
+  }
 
+  TRACE_MSG("Initializing weight constants...");
   int i = 0;
   int j = 0;
   double V_cor = 1 / (1 + exp((V - V0) / T));
@@ -1463,10 +1467,17 @@ void Cell::protrude_adh_nuc_push() {
 
   double Im_local_sum = 0;
   // cout << "protrude" << endl;
-  for (int ii = 0; ii < (fr_rows_num - 2); ii++) {
-    i = rows_rand_idx[ii];
-    for (int jj = 0; jj < (fr_cols_num - 2); jj++) {
-      j = cols_rand_idx[jj];
+  TRACE_MSG("Starting protrusion loop...");
+  for (int jj = 0; jj < (fr_cols_num - 2); jj++) {
+    j = cols_rand_idx[jj];
+    for (int ii = 0; ii < (fr_rows_num - 2); ii++) {
+      i = rows_rand_idx[ii];
+
+      if constexpr (LIB_CELL_NUC_DEBUG_CPP) {
+        i = ii + fr_rows_pos;
+        j = jj + fr_cols_pos;
+      }
+
       if (outline[i][j] == 1 and
 
           not((Im[i - 1][j - 1] == 1 and Im[i][j - 1] == 0 and
@@ -1564,8 +1575,12 @@ void Cell::protrude_adh_nuc_push() {
       }
     }
   }
+
+  TRACE_MSG("Updating volume...");
   update_volume();
+  TRACE_MSG("Updating outline...");
   update_outline();
+  TRACE_MSG("Updating inner_outline...");
   update_inner_outline();
 }
 
@@ -1969,11 +1984,11 @@ void Cell::diffuse_k0_adh() {
 
   double s2C = 0.05;
   // DTmod end
+  TRACE_MSG("Starting diffusion loop...")
   for (int k = 0; k < diff_t; k++) {
-#pragma omp parallel for collapse(2) private(f, h)
-    for (int i = (fr_rows_pos + 1); i < (fr_rows_pos + fr_rows_num - 1); i++) {
-      for (int j = (fr_cols_pos + 1); j < (fr_cols_pos + fr_cols_num - 1);
-           j++) {
+    for (int j = (fr_cols_pos + 1); j < (fr_cols_pos + fr_cols_num - 1); j++) {
+      for (int i = (fr_rows_pos + 1); i < (fr_rows_pos + fr_rows_num - 1);
+           i++) {
         if (Im[i][j] == 1) {
           f = (k0_adh[i][j] +
                gamma * pow(A[i][j], 3) / (pow(A0, 3) + pow(A[i][j], 3))) *
@@ -2044,6 +2059,7 @@ void Cell::diffuse_k0_adh() {
         }
       }
     }
+
     swap_array2d(A, A_new, env_rows_num, env_cols_num);
     swap_array2d(I, I_new, env_rows_num, env_cols_num);
     swap_array2d(F, F_new, env_rows_num, env_cols_num);
