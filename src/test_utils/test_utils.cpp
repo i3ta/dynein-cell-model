@@ -12,8 +12,10 @@ void CellModelTest::protrude_nuc_dep() { model.protrude_nuc_dep(); }
 
 void CellModelTest::retract_nuc_dep() { model.retract_nuc_dep(); }
 
-void CellModelTest::generate_dyn_field(bool retract) {
-  model.generate_dyn_field(retract);
+void CellModelTest::generate_dyn_field(const dcm::SpMat_i &cell_outline,
+                                       const dcm::SpMat_i &nuc_outline,
+                                       bool retract) {
+  model.generate_dyn_field(cell_outline, nuc_outline, retract);
 }
 
 void CellModelTest::set_cell(const dcm::Mat_i cell) { model.set_cell(cell); }
@@ -72,12 +74,11 @@ const dcm::SpMat_i &CellModelTest::get_inner_outline_nuc() {
 
 const dcm::Mat_d &CellModelTest::get_dyn_f() { return model.dyn_f_; }
 
-const int CellModelTest::get_AC_cor_sum() { return model.AC_cor_sum_; }
+const double CellModelTest::get_AC_cor_sum() { return model.AC_cor_sum_; }
 
-const int CellModelTest::get_IC_cor_sum() { return model.IC_cor_sum_; }
+const double CellModelTest::get_IC_cor_sum() { return model.IC_cor_sum_; }
 
 const int CellModelTest::get_V_nuc() { return model.V_nuc_; }
 
 const int CellModelTest::get_P_nuc() { return model.P_nuc_; }
-
 }; // namespace test_utils

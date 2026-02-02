@@ -36,7 +36,8 @@ TEST_F(CompModelTest, DyneinFieldProtConsistency) {
       1, 1, rows, cols, raw_AC);
 
   TRACE_MSG("Generating New Dynein Field...");
-  modern.generate_dyn_field(false);
+  modern.generate_dyn_field(modern.get_inner_outline(),
+                            modern.get_outline_nuc(), false);
   const auto &modern_dyn_f_prot = modern.get_dyn_f();
 
   TRACE_MSG("Comparing Dynein Field Outputs...");
@@ -63,16 +64,17 @@ TEST_F(CompModelTest, DyneinFieldRetrConsistency) {
   double **raw_AC = eigen_to_raw(modern.get_AC());
   double **raw_inner_outline =
       eigen_to_raw(modern.get_inner_outline().cast<double>());
-  double **raw_outline_nuc =
-      eigen_to_raw(modern.get_outline_nuc().cast<double>());
+  double **raw_inner_outline_nuc =
+      eigen_to_raw(modern.get_inner_outline_nuc().cast<double>());
 
   TRACE_MSG("Generating Legacy Dynein Field...");
   double **legacy_dyn_f_ret = generate_dyn_field_retr(
-      raw_cell, raw_nuc, raw_inner_outline, raw_outline_nuc, rows - 2, cols - 2,
-      1, 1, rows, cols, raw_AC);
+      raw_cell, raw_nuc, raw_inner_outline, raw_inner_outline_nuc, rows - 2,
+      cols - 2, 1, 1, rows, cols, raw_AC);
 
   TRACE_MSG("Generating New Dynein Field...");
-  modern.generate_dyn_field(true);
+  modern.generate_dyn_field(modern.get_inner_outline(),
+                            modern.get_inner_outline_nuc(), true);
   const auto &modern_dyn_f_ret = modern.get_dyn_f();
 
   TRACE_MSG("Comparing Dynein Field Outputs...");

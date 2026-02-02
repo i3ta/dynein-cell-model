@@ -674,8 +674,8 @@ double **generate_dyn_field_retr(double **cell, double **nuc,
   double **scaling_nuc = create_array2d(env_rows_num, env_cols_num);
   initiate_matrix_with_zeros(scaling_nuc, env_rows_num, env_cols_num);
   // DTmod end
-  for (int i = fr_rows_pos; i < (fr_rows_pos + cell_rows); ++i) {
-    for (int j = fr_cols_pos; j < (fr_cols_pos + cell_cols); ++j) {
+  for (int j = fr_cols_pos; j < (fr_cols_pos + cell_cols); ++j) {
+    for (int i = fr_rows_pos; i < (fr_rows_pos + cell_rows); ++i) {
       if (cell_outline[i][j] == 1) {
         // create vector with distance from cell edge pixel to each nuc edge
         // pixel
@@ -1613,7 +1613,9 @@ void Cell::protrude_nuc() {
   double **dyn_f = generate_dyn_field_protr(
       Im, Im_nuc, inner_outline, outline_nuc, fr_rows_num, fr_cols_num,
       fr_rows_pos, fr_cols_pos, env_rows_num, env_cols_num, AC);
-  test_dyn_f = dyn_f;
+  if constexpr (LIB_CELL_NUC_DEBUG_CPP) {
+    test_dyn_f = dyn_f;
+  }
   // DTmod end
 
   // cout << "protrude: made dmap" << endl;
@@ -1826,10 +1828,14 @@ void Cell::retract_nuc() {
   int cols_rand_idx[fr_cols_num - 2];
   for (int i = 1; i != fr_rows_num - 1; i++)
     rows_rand_idx[i - 1] = i + fr_rows_pos;
-  randomize(rows_rand_idx, fr_rows_num - 2);
   for (int i = 1; i != fr_cols_num - 1; i++)
     cols_rand_idx[i - 1] = i + fr_cols_pos;
-  randomize(cols_rand_idx, fr_cols_num - 2);
+  if constexpr (!LIB_CELL_NUC_DEBUG_CPP) {
+    randomize(rows_rand_idx, fr_rows_num - 2);
+    randomize(cols_rand_idx, fr_cols_num - 2);
+  } else {
+    TRACE_MSG("Initialized random values.")
+  }
 
   int i = 0;
   int j = 0;
@@ -1862,14 +1868,22 @@ void Cell::retract_nuc() {
   double **dyn_f = generate_dyn_field_retr(
       Im, Im_nuc, inner_outline, inner_outline_nuc, fr_rows_num, fr_cols_num,
       fr_rows_pos, fr_cols_pos, env_rows_num, env_cols_num, AC);
+  if constexpr (LIB_CELL_NUC_DEBUG_CPP) {
+    test_dyn_f = dyn_f;
+  }
   // DTmod end
 
   // cout << "retr: made dmap" << endl;
   double w = 0;
-  for (int ii = 0; ii < (fr_rows_num - 2); ii++) {
-    i = rows_rand_idx[ii];
-    for (int jj = 0; jj < (fr_cols_num - 2); jj++) {
-      j = cols_rand_idx[jj];
+  for (int jj = 0; jj < (fr_cols_num - 2); jj++) {
+    j = cols_rand_idx[jj];
+    for (int ii = 0; ii < (fr_rows_num - 2); ii++) {
+      i = rows_rand_idx[ii];
+      if constexpr (LIB_CELL_NUC_DEBUG_CPP) {
+        i = ii + fr_rows_pos;
+        j = jj + fr_cols_pos;
+      }
+
       if (inner_outline_nuc[i][j] == 1 and
 
           not((Im_nuc[i - 1][j - 1] == 0 and Im_nuc[i][j - 1] == 1 and
@@ -1899,14 +1913,14 @@ void Cell::retract_nuc() {
                      Im_nuc_local_sum;
         // DTmod end
 
-        w = pow((not Im_nuc[i - 1][j] + not Im_nuc[i][j + 1] +
-                 not Im_nuc[i + 1][j] + not Im_nuc[i][j - 1] +
-                 (not Im_nuc[i - 1][j - 1] + not Im_nuc[i - 1][j + 1] +
-                  not Im_nuc[i + 1][j + 1] + not Im_nuc[i + 1][j - 1]) /
-                     pow(sqrt(2), g)) /
-                    (4 + 4 / pow(sqrt(2), g)),
-                k_nuc) *
-            R_cor * V_cor * (d_basal + (1 - d_basal) * dyn_f[i][j]);
+        double n = (not Im_nuc[i - 1][j] + not Im_nuc[i][j + 1] +
+                    not Im_nuc[i + 1][j] + not Im_nuc[i][j - 1] +
+                    (not Im_nuc[i - 1][j - 1] + not Im_nuc[i - 1][j + 1] +
+                     not Im_nuc[i + 1][j + 1] + not Im_nuc[i + 1][j - 1]) /
+                        pow(sqrt(2), g));
+        w = pow(n / (4 + 4 / pow(sqrt(2), g)), k_nuc) * R_cor * V_cor *
+            (d_basal + (1 - d_basal) * dyn_f[i][j]);
+
         // reference from retract
         //  If A_average is high (more A in cell), then w (prob of protrusion
         //  from outside) is lower aka less retraction ( 1 - act_slope *
@@ -1938,7 +1952,9 @@ void Cell::retract_nuc() {
       }
     }
   }
-  free_array2d(dyn_f);
+  if constexpr (!LIB_CELL_NUC_DEBUG_CPP) {
+    free_array2d(dyn_f);
+  }
   update_volume_nuc();
   update_outline_nuc();
   update_inner_outline_nuc();

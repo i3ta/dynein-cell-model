@@ -323,7 +323,8 @@ private:
    * @brief Generate the dynein field using old logic.
    */
   [[deprecated]]
-  void generate_dyn_field(bool retract);
+  void generate_dyn_field(const SpMat_i &cell_outline,
+                          const SpMat_i &nuc_outline, bool retract);
 
   /**
    * @brief Update and smooth the adhesion field

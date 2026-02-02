@@ -48,8 +48,9 @@ inline constexpr bool DYNEIN_CELL_MODEL_DEBUG_CPP = false;
               << std::flush;
 
 #define TIME_AND_STORE(times, action)                                          \
-  ;                                                                            \
-  times.push_back(time_fn([&]() { action; }));
+  do {                                                                         \
+    times.push_back(time_fn([&]() { action; }));                               \
+  } while (0)
 
 namespace dynein_cell_model {
 namespace {
@@ -847,7 +848,7 @@ void CellModel::protrude_nuc() {
   const double V_cor = 1.0 / (1 + std::exp((V_nuc_ - V0_nuc_) / T_nuc_));
   const double R = double(P_nuc_ * P_nuc_) / V_nuc_;
   const double R_cor = 1.0 / (1 + std::exp((R - R0_) / R_nuc_));
-  const double n_diag = 1.0 / std::pow(M_SQRT1_2, g_);
+  const double n_diag = 1.0 / std::pow(M_SQRT2, g_);
   const double C = 4.0 * (1.0 + n_diag);
 
   // randomize protrude order
@@ -900,7 +901,7 @@ void CellModel::retract_nuc() {
   const double V_cor = 1.0 / (1 + std::exp(-(V_nuc_ - V0_nuc_) / T_nuc_));
   const double R = double(P_nuc_ * P_nuc_) / V_nuc_;
   const double R_cor = 1.0 / (1 + std::exp((R - R0_) / R_nuc_));
-  const double n_diag = 1.0 / std::pow(M_SQRT1_2, g_);
+  const double n_diag = 1.0 / std::pow(M_SQRT2, g_);
   const double C = 4.0 * (1.0 + n_diag);
 
   // randomize retract order
@@ -954,7 +955,7 @@ void CellModel::retract_nuc() {
 void CellModel::protrude_nuc_dep() {
   // calculate probability coefficients
   const double V_cor = 1.0 / (1 + std::exp((V_nuc_ - V0_nuc_) / T_nuc_));
-  const double R = (P_nuc_ * P_nuc_) / V_nuc_;
+  const double R = (P_nuc_ * P_nuc_) / V_nuc_; // WARN: Not casting to double
   const double R_cor = 1.0 / (1 + std::exp((R - R0_) / R_nuc_));
   const double n_diag = 1.0 / std::pow(M_SQRT2, g_);
   const double C = 4.0 * (1.0 + n_diag);
@@ -970,7 +971,7 @@ void CellModel::protrude_nuc_dep() {
   }
 
   // generate dynein field for protrusion probability
-  generate_dyn_field(false);
+  generate_dyn_field(inner_outline_, outline_nuc_, false);
 
   // protrude
   for (int i = 0; i < protrude_coords.size(); i++) {
@@ -1016,33 +1017,33 @@ void CellModel::retract_nuc_dep() {
    */
   // calculate probability coefficients
   const double V_cor = 1.0 / (1 + std::exp(-(V_nuc_ - V0_nuc_) / T_nuc_));
-  const double R = double(P_nuc_ * P_nuc_) / V_nuc_;
+  const double R = (P_nuc_ * P_nuc_) / V_nuc_; // WARN: Not casting to double
   const double R_cor = 1.0 / (1 + std::exp((R - R0_) / R_nuc_));
-  const double n_diag = 1.0 / std::pow(M_SQRT1_2, g_);
+  const double n_diag = 1.0 / std::pow(M_SQRT2, g_);
   const double C = 4.0 * (1.0 + n_diag);
 
   // randomize retract order
   std::vector<std::pair<int, int>> retract_coords;
+
   if constexpr (DYNEIN_CELL_MODEL_DEBUG_CPP) {
     // NOTE: If debug, use non-random column-major order
-    retract_coords = get_nonzero(outline_nuc_);
+    retract_coords = get_nonzero(inner_outline_nuc_);
   } else {
-    retract_coords = randomize_nonzero(outline_nuc_, rng);
+    retract_coords = randomize_nonzero(inner_outline_nuc_, rng);
   }
 
   // generate dynein field for retraction probability
-  generate_dyn_field(true);
+  generate_dyn_field(inner_outline_, inner_outline_nuc_, true);
 
   // retract
   for (int i = 0; i < retract_coords.size(); i++) {
-    auto [r, c] = retract_coords[i];
+    const auto [r, c] = retract_coords[i];
 
-    if (inner_outline_.coeff(r, c) == 0 ||
-        retract_conf_.count(encode_8(nuc_, r, c)) ==
-            0) // Check if retraction would be valid
+    if (retract_conf_.count(encode_8(nuc_, r, c)) ==
+        0) // Check if retraction would be valid
       continue;
 
-    // get protrusion probability
+    // get retraction probability
     const double n = n_diag * (!nuc_(r - 1, c - 1) + !nuc_(r + 1, c - 1) +
                                !nuc_(r + 1, c + 1) + !nuc_(r - 1, c + 1)) +
                      !nuc_(r - 1, c) + !nuc_(r, c - 1) + !nuc_(r + 1, c) +
@@ -1056,13 +1057,13 @@ void CellModel::retract_nuc_dep() {
       nuc_(r, c) = 0;
 
       // count number of neighbors and sum up values
-      int n = 9 - nuc_.block<3, 3>(r - 1, c - 1)
+      int n = 8 - nuc_.block<3, 3>(r - 1, c - 1)
                       .sum(); // number of cell pixels (non-nucleus)
-      double AC = AC_.block<3, 3>(r - 1, c - 1).sum();
-      double FC = FC_.block<3, 3>(r - 1, c - 1).sum();
-      double IC = IC_.block<3, 3>(r - 1, c - 1).sum();
+      double AC = AC_.block<3, 3>(r - 1, c - 1).sum() - AC_(r, c);
+      double FC = FC_.block<3, 3>(r - 1, c - 1).sum() - FC_(r, c);
+      double IC = IC_.block<3, 3>(r - 1, c - 1).sum() - IC_(r, c);
 
-      AC_(r, c) = std::clamp(AC / n, AC_min_, AC_max_);
+      AC_(r, c) = AC / n;
       AC_cor_sum_ += AC_(r, c);
       IC_(r, c) = IC / n;
       IC_cor_sum_ += IC_(r, c);
@@ -1074,23 +1075,23 @@ void CellModel::retract_nuc_dep() {
   update_nuc();
 }
 
-void CellModel::generate_dyn_field(bool retract) {
+void CellModel::generate_dyn_field(const SpMat_i &cell_outline,
+                                   const SpMat_i &nuc_outline, bool retract) {
   SpMat_i scaling{sim_rows_, sim_cols_};
-  dyn_f_.setZero();
 
-  const int len = outline_nuc_.nonZeros();
+  const int len = nuc_outline.nonZeros();
   int n = len / (retract ? 6 : 30);
 
-  for (int k = 0; k < inner_outline_.outerSize(); k++) {
-    for (SpMat_i::InnerIterator it(inner_outline_, k); it; ++it) {
+  for (int k = 0; k < cell_outline.outerSize(); k++) {
+    for (SpMat_i::InnerIterator it(cell_outline, k); it; ++it) {
       const int r = it.row();
       const int c = it.col();
 
       // get nucleus pixel closest to current pixel
       int dist2 = 2e9;
       int min_r, min_c;
-      for (int j = 0; j < outline_nuc_.outerSize(); j++) {
-        for (SpMat_i::InnerIterator it_nuc(outline_nuc_, j); it_nuc; ++it_nuc) {
+      for (int j = 0; j < nuc_outline.outerSize(); j++) {
+        for (SpMat_i::InnerIterator it_nuc(nuc_outline, j); it_nuc; ++it_nuc) {
           int cur_dist2 = (r - it_nuc.row()) * (r - it_nuc.row()) +
                           (c - it_nuc.col()) * (c - it_nuc.col());
           if (cur_dist2 < dist2) {
@@ -1108,7 +1109,7 @@ void CellModel::generate_dyn_field(bool retract) {
         for (int i = min_r - n; i < min_r + n; ++i) {
           if (i < 0 || i >= sim_rows_)
             continue;
-          if (outline_nuc_.coeff(i, j) == 1) {
+          if (nuc_outline.coeff(i, j) == 1) {
             dyn_f_(i, j) += dist_f;
             scaling.coeffRef(i, j)++;
           }
@@ -1150,7 +1151,7 @@ void CellModel::protrude() {
                                   frame_row_end_ - frame_row_start_ + 1,
                                   frame_col_end_ - frame_col_start_ + 1)
                             .maxCoeff();
-  const double n_diag = 1.0 / std::pow(M_SQRT1_2, g_);
+  const double n_diag = 1.0 / std::pow(M_SQRT2, g_);
   const double C = 4.0 * (1.0 + n_diag);
 
   // get random visiting order
@@ -1227,7 +1228,7 @@ void CellModel::retract() {
                                   frame_row_end_ - frame_row_start_ + 1,
                                   frame_col_end_ - frame_col_start_ + 1)
                             .maxCoeff();
-  const double n_diag = 1.0 / std::pow(M_SQRT1_2, g_);
+  const double n_diag = 1.0 / std::pow(M_SQRT2, g_);
   const double C = 4.0 * (1.0 + n_diag);
 
   // get random visiting order
@@ -1850,8 +1851,10 @@ const bool CellModel::is_valid_config_retr(uint8_t conf) {
     return false;
 
   // Pinch cases
-  bool vertical_pinch = (conf & (1 << 1)) && (conf & (1 << 5));
-  bool horizontal_pinch = (conf & (1 << 3)) && (conf & (1 << 7));
+  bool vertical_pinch = (conf & (1 << 1)) && (conf & (1 << 5)) &&
+                        !(conf & (1 << 3)) && !(conf & (1 << 7));
+  bool horizontal_pinch = (conf & (1 << 3)) && (conf & (1 << 7)) &&
+                          !(conf & (1 << 1)) && !(conf & (1 << 5));
 
   if (vertical_pinch || horizontal_pinch)
     return false;

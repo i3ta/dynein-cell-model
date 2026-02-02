@@ -87,11 +87,11 @@ TEST_F(CompModelTest, ProtrudeNucConsistency) {
       legacy.fr_cols_pos, legacy.env_rows_num, legacy.env_cols_num);
   ASSERT_EQ(legacy_perim, modern.get_P_nuc()) << "Nucleus perimeter mismatch";
 
-  TRACE_MSG("Executing Modern: protrude_nuc_dep()...");
-  modern.protrude_nuc_dep();
+  TRACE_MSG("Executing Modern: retract_nuc_dep()...");
+  modern.retract_nuc_dep();
 
-  TRACE_MSG("Executing Legacy: protrude_nuc()...");
-  legacy.protrude_nuc();
+  TRACE_MSG("Executing Legacy: retract_nuc()...");
+  legacy.retract_nuc();
 
   TRACE_MSG("Checking Global State Parity...");
   EXPECT_EQ(legacy.V_nuc, modern.get_V_nuc()) << "Nucleus volume mismatch";

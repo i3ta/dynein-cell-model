@@ -52,7 +52,8 @@ public:
 
   void retract_nuc_dep();
 
-  void generate_dyn_field(bool retract);
+  void generate_dyn_field(const dcm::SpMat_i &cell_outline,
+                          const dcm::SpMat_i &nuc_outline, bool retract);
 
   void set_cell(const dcm::Mat_i cell);
 
@@ -104,9 +105,9 @@ public:
 
   const dcm::Mat_d &get_dyn_f();
 
-  const int get_AC_cor_sum();
+  const double get_AC_cor_sum();
 
-  const int get_IC_cor_sum();
+  const double get_IC_cor_sum();
 
   const int get_V_nuc();
 
