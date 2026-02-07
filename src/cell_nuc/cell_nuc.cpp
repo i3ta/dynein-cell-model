@@ -1431,7 +1431,6 @@ void Cell::update_inner_outline_nuc() {
 }
 
 void Cell::protrude_adh_nuc_push() {
-  TRACE_MSG("Initializing order...");
   int rows_rand_idx[fr_rows_num - 2];
   int cols_rand_idx[fr_cols_num - 2];
   for (int i = 1; i != fr_rows_num - 1; i++)
@@ -1443,7 +1442,6 @@ void Cell::protrude_adh_nuc_push() {
     randomize(cols_rand_idx, fr_cols_num - 2);
   }
 
-  TRACE_MSG("Initializing weight constants...");
   int i = 0;
   int j = 0;
   double V_cor = 1 / (1 + exp((V - V0) / T));
@@ -1467,7 +1465,6 @@ void Cell::protrude_adh_nuc_push() {
 
   double Im_local_sum = 0;
   // cout << "protrude" << endl;
-  TRACE_MSG("Starting protrusion loop...");
   for (int jj = 0; jj < (fr_cols_num - 2); jj++) {
     j = cols_rand_idx[jj];
     for (int ii = 0; ii < (fr_rows_num - 2); ii++) {
@@ -1509,14 +1506,14 @@ void Cell::protrude_adh_nuc_push() {
                      Im_local_sum;
         // DTmod end
 
-        w = pow((Im[i - 1][j] + Im[i][j + 1] + Im[i + 1][j] + Im[i][j - 1] +
-                 (Im[i - 1][j - 1] + Im[i - 1][j + 1] + Im[i + 1][j + 1] +
-                  Im[i + 1][j - 1]) /
-                     pow(sqrt(2), g)) /
-                    (4 + 4 / pow(sqrt(2), g)),
-                k) *
-            V_cor * (1 - act_slope + act_slope * A_average / A_max) *
+        auto n = (Im[i - 1][j] + Im[i][j + 1] + Im[i + 1][j] + Im[i][j - 1] +
+                  (Im[i - 1][j - 1] + Im[i - 1][j + 1] + Im[i + 1][j + 1] +
+                   Im[i + 1][j - 1]) /
+                      pow(sqrt(2), g));
+        w = pow(n / (4 + 4 / pow(sqrt(2), g)), k) * V_cor *
+            (1 - act_slope + act_slope * A_average / A_max) *
             (adh_basal_prot + (1 - adh_f[i][j]) * (1 - adh_basal_prot));
+
         // cout << i << ' ' << j << ' ' << ' ' << w << endl;
         // cout << "V_cor: " << V_cor << endl;
         // cout << "geom: " << pow(
@@ -1532,10 +1529,12 @@ void Cell::protrude_adh_nuc_push() {
           // cell to protrude Note: this could mess up volume conservation since
           // I am bypassing all the protrusion factors
           w = 1;
+        } else {
         }
 
+        double p = (double)rand() / RAND_MAX;
         Im[i][j] =
-            (double)rand() / RAND_MAX <
+            p <
             w; // more likely to protrude if w is higher (Im = 1 if w > rand)
 
         if (Im[i][j] == 1) {
@@ -1576,11 +1575,8 @@ void Cell::protrude_adh_nuc_push() {
     }
   }
 
-  TRACE_MSG("Updating volume...");
   update_volume();
-  TRACE_MSG("Updating outline...");
   update_outline();
-  TRACE_MSG("Updating inner_outline...");
   update_inner_outline();
 }
 

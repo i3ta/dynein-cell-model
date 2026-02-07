@@ -73,6 +73,8 @@ const dcm::Mat_d &CellModelTest::get_FC() { return model.FC_; }
 
 const dcm::Mat_d &CellModelTest::get_k0_adh() { return model.k0_adh_; }
 
+const dcm::Mat_d &CellModelTest::get_adh_f() { return model.adh_f_; }
+
 const dcm::SpMat_i &CellModelTest::get_env() { return model.env_; }
 
 const dcm::SpMat_i &CellModelTest::get_outline() { return model.outline_; }

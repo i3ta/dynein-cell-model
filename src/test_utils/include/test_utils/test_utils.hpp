@@ -14,8 +14,12 @@ namespace test_utils {
 namespace dcm = dynein_cell_model;
 
 template <typename T> class DebugRand {
+private:
+  static std::set<DebugRand *> instances_;
+
 public:
-  DebugRand() : current_index_(0) {}
+  DebugRand() : current_index_(0) { instances_.insert(this); }
+  ~DebugRand() { instances_.erase(this); }
 
   static constexpr T min() { return 0; }
   static constexpr T max() { return std::numeric_limits<T>::max(); }
@@ -31,10 +35,17 @@ public:
     return outputs_[current_index_++ % outputs_.size()];
   }
 
+  static void reset_all_instances(size_t index = 0) {
+    for (auto *inst : instances_)
+      inst->current_index_ = index;
+  }
+
 private:
   static std::vector<T> outputs_;
   size_t current_index_;
 };
+
+template <typename T> std::set<DebugRand<T> *> DebugRand<T>::instances_;
 
 // This line must stay in the header to tell the compiler
 // how to allocate the static vector for any T used.
@@ -104,6 +115,8 @@ public:
   const dcm::Mat_d &get_F();
 
   const dcm::Mat_d &get_FC();
+
+  const dcm::Mat_d &get_adh_f();
 
   const dcm::SpMat_i &get_env();
 
@@ -219,6 +232,28 @@ protected:
     }
   }
 
+  dcm::SpMat_i fill_env(int rows, int cols) {
+    dcm::SpMat_i env_mask{rows, cols};
+    std::vector<Eigen::Triplet<int>> t;
+    int cr = rows / 2, cc = cols / 2;
+
+    for (int i = 0; i < std::max(rows, cols); ++i) {
+      for (int w = -2; w <= 2; ++w) {
+        if (i < cols && (cr + w) >= 0 && (cr + w) < rows)
+          t.push_back({cr + w, i, 1});
+        if (i < rows && (cc + w) >= 0 && (cc + w) < cols)
+          t.push_back({i, cc + w, 1});
+      }
+    }
+
+    env_mask.setFromTriplets(t.begin(), t.end());
+    for (int i = 0; i < env_mask.nonZeros(); ++i)
+      if (env_mask.valuePtr()[i] > 1)
+        env_mask.valuePtr()[i] = 1;
+
+    return env_mask;
+  }
+
   void sync_params(Cell &legacy, const dcm::CellModelConfig &config) {
     legacy.k = config.k_;
     legacy.k_nuc = config.k_nuc_;
@@ -287,7 +322,7 @@ protected:
         }
       }
     }
-    EXPECT_EQ(mat_mismatches, 0)
+    ASSERT_EQ(mat_mismatches, 0)
         << test_name
         << " masks do not match. Fix this before checking outlines.";
   }
@@ -310,7 +345,7 @@ protected:
         }
       }
     }
-    EXPECT_EQ(outline_mismatches, 0) << "Outer outlines do not match. Check "
+    ASSERT_EQ(outline_mismatches, 0) << "Outer outlines do not match. Check "
                                         "connectivity (4 vs 8 neighbors).";
   }
 

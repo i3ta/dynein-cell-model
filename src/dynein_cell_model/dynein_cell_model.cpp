@@ -253,21 +253,21 @@ randomize_nonzero(const SpMat_i &mat, std::mt19937 &rng) {
   return coords;
 }
 
-int outline_4(const SpMat_i &outline_nuc, const Mat_i &nuc, int sim_rows,
+int outline_4(const SpMat_i &outline, const Mat_i &body, int sim_rows,
               int sim_cols) {
   const int DR[4] = {-1, 0, 1, 0};
   const int DC[4] = {0, -1, 0, 1};
 
   int perim = 0;
 
-  for (int k = 0; k < outline_nuc.outerSize(); ++k) {
-    for (SpMat_i::InnerIterator it(outline_nuc, k); it; ++it) {
+  for (int k = 0; k < outline.outerSize(); ++k) {
+    for (SpMat_i::InnerIterator it(outline, k); it; ++it) {
       for (int i = 0; i < 4; i++) {
         const int nr = it.row() + DR[i];
         const int nc = it.col() + DC[i];
         if (nr < 0 || nr >= sim_rows || nc < 0 || nc >= sim_cols)
           continue;
-        if (nuc(nr, nc) == 1) {
+        if (body(nr, nc) == 1) {
           perim++;
           break;
         }
@@ -326,6 +326,7 @@ CellModelConfig::CellModelConfig() {
   sim_cols_ = 600;
   seed_ = 0;
   num_iters_ = 5000000;
+  dyn_kernel_size_ = 5;
 }
 
 CellModelConfig::CellModelConfig(std::string config_file) {
@@ -1156,8 +1157,13 @@ void CellModel::protrude() {
   const double C = 4.0 * (1.0 + n_diag);
 
   // get random visiting order
-  std::vector<std::pair<int, int>> protrude_coords =
-      randomize_nonzero(outline_, rng);
+  std::vector<std::pair<int, int>> protrude_coords;
+  if constexpr (DYNEIN_CELL_MODEL_DEBUG_CPP) {
+    // NOTE: If debug, use non-random column-major order
+    protrude_coords = get_nonzero(outline_);
+  } else {
+    protrude_coords = randomize_nonzero(outline_, rng);
+  }
 
   // protrude
   for (int i = 0; i < protrude_coords.size(); i++) {
@@ -1176,7 +1182,7 @@ void CellModel::protrude() {
                  cell_(r - 1, c) + cell_(r, c - 1) + cell_(r + 1, c) +
                  cell_(r, c + 1);
       int N = cell_.block<3, 3>(r - 1, c - 1).sum();
-      double A_avg = A_.block<3, 3>(r - 1, c - 1).sum() / N;
+      double A_avg = (A_.block<3, 3>(r - 1, c - 1).sum() - A_(r, c)) / N;
       w = std::pow(n / C, k_) * V_cor *
           (1.0 - act_slope_ * (1.0 - A_avg / A_max)) *
           (adh_f_(r, c) * (adh_basal_ - 1.0) + 1.0);
@@ -1186,18 +1192,18 @@ void CellModel::protrude() {
     const double p = prob_dist(rng);
     if (p < w) {
       int N = cell_.block<3, 3>(r - 1, c - 1).sum();
-      double A_avg = A_.block<3, 3>(r - 1, c - 1).sum() / N;
-      double I_avg = I_.block<3, 3>(r - 1, c - 1).sum() / N;
-      double F_avg = F_.block<3, 3>(r - 1, c - 1).sum() / N;
-      double AC_avg = AC_.block<3, 3>(r - 1, c - 1).sum() / N;
-      double IC_avg = IC_.block<3, 3>(r - 1, c - 1).sum() / N;
-      double FC_avg = FC_.block<3, 3>(r - 1, c - 1).sum() / N;
+      double A_avg = (A_.block<3, 3>(r - 1, c - 1).sum() - A_(r, c)) / N;
+      double I_avg = (I_.block<3, 3>(r - 1, c - 1).sum() - I_(r, c)) / N;
+      double F_avg = (F_.block<3, 3>(r - 1, c - 1).sum() - F_(r, c)) / N;
+      double AC_avg = (AC_.block<3, 3>(r - 1, c - 1).sum() - AC_(r, c)) / N;
+      double IC_avg = (IC_.block<3, 3>(r - 1, c - 1).sum() - IC_(r, c)) / N;
+      double FC_avg = (FC_.block<3, 3>(r - 1, c - 1).sum() - FC_(r, c)) / N;
 
       cell_(r, c) = 1;
-      A_(r, c) = std::clamp(A_avg, A_min_, A_max_);
+      A_(r, c) = A_avg;
       I_(r, c) = I_avg;
       F_(r, c) = F_avg;
-      AC_(r, c) = std::clamp(AC_avg, AC_min_, AC_max_);
+      AC_(r, c) = AC_avg;
       IC_(r, c) = IC_avg;
       FC_(r, c) = FC_avg;
 
@@ -1422,8 +1428,8 @@ void CellModel::update_cell(const bool full) {
    * Iterate through cell pixels and add 4-neighbors that are not part of the
    * cell to outer outline.
    */
-  const int DR[4] = {-1, 1, 0, 0};
-  const int DC[4] = {0, 0, -1, 1};
+  const int DR[8] = {-1, 1, 0, 0, -1, -1, 1, 1};
+  const int DC[8] = {0, 0, -1, 1, -1, 1, -1, 1};
 
   // Clear outlines
   outline_.setZero();
@@ -1445,7 +1451,7 @@ void CellModel::update_cell(const bool full) {
       for (int j = col_start; j <= col_end; j++) {
         if (cell_(i, j) == 0)
           continue;
-        for (int k = 0; k < 4; k++) {
+        for (int k = 0; k < 8; k++) {
           const int nr = i + DR[k];
           const int nc = j + DC[k];
           if (nr < 0 || nr >= sim_rows_ || nc < 0 || nc >= sim_cols_)
@@ -1472,7 +1478,7 @@ void CellModel::update_cell(const bool full) {
 
   // update cell volume and perimeter
   V_ = (cell_.array() != 0).count();
-  P_ = inner_outline_.nonZeros();
+  P_ = outline_4(outline_, cell_, sim_rows_, sim_cols_);
 }
 
 void CellModel::correct_concentrations() {
