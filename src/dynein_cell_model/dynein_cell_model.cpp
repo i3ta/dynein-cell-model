@@ -1239,8 +1239,13 @@ void CellModel::retract() {
   const double C = 4.0 * (1.0 + n_diag);
 
   // get random visiting order
-  std::vector<std::pair<int, int>> retract_coords =
-      randomize_nonzero(inner_outline_, rng);
+  std::vector<std::pair<int, int>> retract_coords;
+
+  if constexpr (DYNEIN_CELL_MODEL_DEBUG_CPP) {
+    retract_coords = get_nonzero(inner_outline_);
+  } else {
+    retract_coords = randomize_nonzero(inner_outline_, rng);
+  }
 
   // retract
   for (int i = 0; i < retract_coords.size(); i++) {
@@ -1256,8 +1261,8 @@ void CellModel::retract() {
                          !cell_(r + 1, c + 1) + !cell_(r - 1, c + 1)) +
                !cell_(r - 1, c) + !cell_(r, c - 1) + !cell_(r + 1, c) +
                !cell_(r, c + 1);
-    int N = cell_.block<3, 3>(r - 1, c - 1).sum();
-    double A_avg = A_.block<3, 3>(r - 1, c - 1).sum() / N;
+    int N = cell_.block<3, 3>(r - 1, c - 1).sum() - 1;
+    double A_avg = (A_.block<3, 3>(r - 1, c - 1).sum() - A_(r, c)) / N;
     double w = std::pow(n / C, k_) * V_cor *
                (1.0 - act_slope_ * A_avg / A_max) * adh_f_(r, c);
 

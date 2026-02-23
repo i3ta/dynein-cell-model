@@ -657,8 +657,8 @@ double **generate_dyn_field_retr(double **cell, double **nuc,
 
   // Get indices of all pixels on nucleus outline
   vector<vector<int>> nuc_inds;
-  for (int i = fr_rows_pos; i < (fr_rows_pos + cell_rows); ++i) {
-    for (int j = fr_cols_pos; j < (fr_cols_pos + cell_cols); ++j) {
+  for (int j = fr_cols_pos; j < (fr_cols_pos + cell_cols); ++j) {
+    for (int i = fr_rows_pos; i < (fr_rows_pos + cell_rows); ++i) {
       if (nuc_outline[i][j] == 1) {
         nuc_inds.push_back({i, j});
       }
@@ -1708,10 +1708,12 @@ void Cell::retract() {
   int cols_rand_idx[fr_cols_num - 2];
   for (int i = 1; i != fr_rows_num - 1; i++)
     rows_rand_idx[i - 1] = i + fr_rows_pos;
-  randomize(rows_rand_idx, fr_rows_num - 2);
   for (int i = 1; i != fr_cols_num - 1; i++)
     cols_rand_idx[i - 1] = i + fr_cols_pos;
-  randomize(cols_rand_idx, fr_cols_num - 2);
+  if constexpr (!LIB_CELL_NUC_DEBUG_CPP) {
+    randomize(rows_rand_idx, fr_rows_num - 2);
+    randomize(cols_rand_idx, fr_cols_num - 2);
+  }
 
   int i = 0;
   int j = 0;
@@ -1728,10 +1730,16 @@ void Cell::retract() {
   double AC_average = 0;
   // DTmod end
   // cout << "retract" << endl;
-  for (int ii = 0; ii < (fr_rows_num - 2); ii++) {
-    i = rows_rand_idx[ii];
-    for (int jj = 0; jj < (fr_cols_num - 2); jj++) {
-      j = cols_rand_idx[jj];
+  for (int jj = 0; jj < (fr_cols_num - 2); jj++) {
+    j = cols_rand_idx[jj];
+    for (int ii = 0; ii < (fr_rows_num - 2); ii++) {
+      i = rows_rand_idx[ii];
+
+      if constexpr (LIB_CELL_NUC_DEBUG_CPP) {
+        i = ii + fr_rows_pos;
+        j = jj + fr_cols_pos;
+      }
+
       if (inner_outline[i][j] == 1 and
 
           not(Im_nuc[i][j] ==
@@ -1803,7 +1811,8 @@ void Cell::retract() {
 
         // cout << "( " << i << ", " << j << " )  " << "Im[i][j]: " << Im[i][j]
         // << endl;
-        Im[i][j] = not((double)rand() / RAND_MAX < w);
+        auto p = (double)rand() / RAND_MAX;
+        Im[i][j] = not(p < w);
 
         if (Im[i][j] == 0) {
           // cout << "ok" << endl;

@@ -15,6 +15,8 @@ void CellModelTest::rearrange_adhesions(const bool bias,
 
 void CellModelTest::protrude() { model.protrude(); }
 
+void CellModelTest::retract() { model.retract(); }
+
 void CellModelTest::protrude_nuc_dep() { model.protrude_nuc_dep(); }
 
 void CellModelTest::retract_nuc_dep() { model.retract_nuc_dep(); }
