@@ -27,6 +27,8 @@ void CellModelTest::generate_dyn_field(const dcm::SpMat_i &cell_outline,
   model.generate_dyn_field(cell_outline, nuc_outline, retract);
 }
 
+void CellModelTest::correct_concentrations() { model.correct_concentrations(); }
+
 void CellModelTest::diffuse_k0_adh() { model.diffuse_k0_adh(); }
 
 void CellModelTest::set_cell(const dcm::Mat_i cell) { model.set_cell(cell); }

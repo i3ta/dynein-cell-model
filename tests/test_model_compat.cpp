@@ -556,3 +556,28 @@ TEST_F(ModelCompatTest, RetractNucCompatability) {
   EXPECT_NEAR(legacy.IC_cor_sum, modern.get_IC_cor_sum(), 1e-8)
       << "IC_cor_sum mismatch";
 }
+
+TEST_F(ModelCompatTest, CorrectConcentrationCompatability) {
+  TRACE_MSG("Executing protrude() to put cell in a state with corrections...");
+  // NOTE: The protrude tests must pass for this test to work properly
+  modern.protrude();
+  legacy.protrude_adh_nuc_push();
+
+  TRACE_MSG("Testing modern correct_concentrations()...")
+  modern.correct_concentrations();
+
+  TRACE_MSG("Testing legacy correct_concentrations()...")
+  legacy.correct_concentrations();
+
+  TRACE_MSG("Loop 1/4: Checking A...");
+  test_mat_near(legacy.A, modern.get_A(), "A");
+
+  TRACE_MSG("Loop 2/4: Checking I...");
+  test_mat_near(legacy.I, modern.get_I(), "I");
+
+  TRACE_MSG("Loop 3/4: Checking AC...");
+  test_mat_near(legacy.AC, modern.get_AC(), "AC");
+
+  TRACE_MSG("Loop 4/4: Checking IC...");
+  test_mat_near(legacy.IC, modern.get_IC(), "IC");
+}

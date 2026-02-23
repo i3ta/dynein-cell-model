@@ -75,6 +75,8 @@ public:
   void generate_dyn_field(const dcm::SpMat_i &cell_outline,
                           const dcm::SpMat_i &nuc_outline, bool retract);
 
+  void correct_concentrations();
+
   void diffuse_k0_adh();
 
   void set_cell(const dcm::Mat_i cell);

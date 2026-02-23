@@ -2084,8 +2084,8 @@ void Cell::correct_concentrations() {
   double IC_local_cor = IC_cor_sum / (V - V_nuc);
   // DTmod end
 
-  for (int i = fr_rows_pos; i < (fr_rows_pos + fr_rows_num); i++) {
-    for (int j = fr_cols_pos; j < (fr_cols_pos + fr_cols_num); j++) {
+  for (int j = fr_cols_pos; j < (fr_cols_pos + fr_cols_num); j++) {
+    for (int i = fr_rows_pos; i < (fr_rows_pos + fr_rows_num); i++) {
       if (Im[i][j] == 1) {
         A[i][j] -= A_local_cor;
         I[i][j] -= I_local_cor;
