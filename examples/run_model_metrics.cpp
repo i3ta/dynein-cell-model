@@ -70,14 +70,42 @@ int main(int argc, char *argv[]) {
 
   // transform inputs
   IC_init *= 0.75;
+
+  // Find cell bounds to initialize AC polarization relative to cell position
+  int min_row = config.sim_rows_, max_row = 0;
+  for (int j = 0; j < config.sim_cols_; ++j) {
+    for (int i = 0; i < config.sim_rows_; ++i) {
+      if (cell_mask(i, j) == 1) {
+        min_row = std::min(min_row, i);
+        max_row = std::max(max_row, i);
+      }
+    }
+  }
+  int mid_row = (min_row + max_row) / 2;
+
+  // Initialize AC to 0.75 in the "front" half of the cell (higher row index)
   for (int j = 0; j < config.sim_cols_; ++j) {
     for (int i = 0; i < config.sim_rows_; ++i) {
       if (nucleus_mask(i, j) == 1) {
         AC_init(i, j) = 0;
         IC_init(i, j) = 0;
-      } else if (cell_mask(i, j) == 1 && i > 500) {
+      } else if (cell_mask(i, j) == 1 && i > mid_row) {
         AC_init(i, j) = 0.75;
         IC_init(i, j) = 0;
+      }
+    }
+  }
+
+  // DEBUG: Print initialization stats
+  double ac_sum = 0, ic_sum = 0;
+  int ac_count = 0, ic_count = 0;
+  for (int j = 0; j < config.sim_cols_; ++j) {
+    for (int i = 0; i < config.sim_rows_; ++i) {
+      if (cell_mask(i, j) == 1 && nucleus_mask(i, j) == 0) {
+        ac_sum += AC_init(i, j);
+        ac_count++;
+        ic_sum += IC_init(i, j);
+        ic_count++;
       }
     }
   }

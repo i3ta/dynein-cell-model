@@ -15,3 +15,26 @@ enable_testing()
 add_subdirectory(src)
 add_subdirectory(examples)
 add_subdirectory(tests)
+
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# Define flags for high-performance math and Eigen
+set(PERF_FLAGS 
+    -O3 
+    -ffast-math 
+    -flto 
+    -DEIGEN_NO_DEBUG 
+    -DNDEBUG
+)
+
+# Detect Apple Silicon to use the correct architecture flag
+if(APPLE AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+    list(APPEND PERF_FLAGS -mcpu=apple-m1)
+else()
+    list(APPEND PERF_FLAGS -march=native)
+endif()
+
+# Apply these flags only when building in Release or RelWithDebInfo modes
+add_compile_options("$<$<CONFIG:Release>:${PERF_FLAGS}>")

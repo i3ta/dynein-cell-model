@@ -453,7 +453,7 @@ private:
   int sim_cols_; ///< Total number of columns for the simualation
 
   // Simulation parameters
-  int t_;             ///< current time step
+  int t_ = 0;         ///< current time step
   int adh_t_;         ///< number of time steps per adhesion rearrangement
   int fr_t_;          ///< number of time steps per frame update
   int save_t_;        ///< number of time steps per save

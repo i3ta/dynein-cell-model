@@ -6,7 +6,6 @@
 #include <deque>
 #include <fstream>
 #include <functional>
-#include <iostream>
 #include <map>
 #include <random>
 #include <stack>
@@ -18,7 +17,6 @@
 #include <highfive/H5DataSpace.hpp>
 #include <highfive/H5File.hpp>
 #include <highfive/H5PropertyList.hpp>
-#include <omp.h>
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <utility>
@@ -34,8 +32,8 @@
 #ifdef LIB_DYNEIN_CELL_MODEL_DEBUG
 #include <test_utils/test_utils.hpp>
 
-static test_utils::DebugRand<double> drand;
-#define prob_dist(rng) drand()
+// static test_utils::DebugRand<double> drand;
+// #define prob_dist(rng) drand()
 
 inline constexpr bool DYNEIN_CELL_MODEL_DEBUG_CPP = true;
 #else
@@ -285,7 +283,7 @@ Mat_i matrix_from_mask(std::string filepath, cv::Vec3b color) {
     throw std::invalid_argument("Could not load the image at: " + filepath);
   }
 
-  Mat_i mat(image.rows, image.cols);
+  Mat_i mat = Mat_i::Zero(image.rows, image.cols);
 
   for (int c = 0; c < image.cols; c++) {
     for (int r = 0; r < image.rows; r++) {
@@ -497,6 +495,9 @@ CellModel::~CellModel() {
   finalize(*results_, next_index_, "AC");
   finalize(*results_, next_index_, "IC");
   finalize(*results_, next_index_, "adh");
+  finalize(*results_, next_index_, "env");
+  finalize(*results_, next_index_, "F");
+  finalize(*results_, next_index_, "k0_adh");
 }
 
 const CellModelConfig CellModel::get_config() {
@@ -641,6 +642,8 @@ void CellModel::save_state() {
   append_dataset(*results_, next_index_, "AC", AC_);
   append_dataset(*results_, next_index_, "IC", IC_);
   append_dataset(*results_, next_index_, "adh", adh_, true);
+  append_dataset(*results_, next_index_, "F", F_);
+  append_dataset(*results_, next_index_, "k0_adh", k0_adh_);
 }
 
 void CellModel::rearrange_adhesions(const bool bias, const bool rearrange_all) {
@@ -672,14 +675,16 @@ void CellModel::rearrange_adhesions(const bool bias, const bool rearrange_all) {
   std::vector<double> A_lin(frame_size); // linearized version of A within frame
   std::vector<std::pair<int, int>> flat_pos(frame_size);
   double A_sum = 0; // total sum of A in frame
-  for (int i = 0, r = frame_row_start_; r <= frame_row_end_; i++, r++) {
-    for (int j = 0, c = frame_col_start_; c <= frame_col_end_; j++, c++) {
-      if (env_.coeff(r, c) == 1 && cell_(r, c) == 1) {
-        // if is valid attachment point, it is a valid place for new adhesion
-        A_sum += A_(r, c);
+  if (bias) {
+    for (int i = 0, r = frame_row_start_; r <= frame_row_end_; i++, r++) {
+      for (int j = 0, c = frame_col_start_; c <= frame_col_end_; j++, c++) {
+        if (env_.coeff(r, c) == 1 && cell_(r, c) == 1) {
+          // if is valid attachment point, it is a valid place for new adhesion
+          A_sum += A_(r, c);
+        }
+        A_lin[i * cols + j] = A_sum;
+        flat_pos[i * cols + j] = {r, c};
       }
-      A_lin[i * cols + j] = A_sum;
-      flat_pos[i * cols + j] = {r, c};
     }
   }
 
@@ -1079,6 +1084,7 @@ void CellModel::retract_nuc_dep() {
 
 void CellModel::generate_dyn_field(const SpMat_i &cell_outline,
                                    const SpMat_i &nuc_outline, bool retract) {
+  dyn_f_.setZero();
   SpMat_i scaling{sim_rows_, sim_cols_};
 
   const int len = nuc_outline.nonZeros();
@@ -1113,7 +1119,7 @@ void CellModel::generate_dyn_field(const SpMat_i &cell_outline,
             continue;
           if (nuc_outline.coeff(i, j) == 1) {
             dyn_f_(i, j) += dist_f;
-            scaling.coeffRef(i, j)++;
+            scaling.coeffRef(i, j) += 1;
           }
         }
       }
@@ -1252,7 +1258,7 @@ void CellModel::retract() {
     auto &[r, c] = retract_coords[i];
 
     if (retract_conf_.count(encode_8(cell_, r, c)) ==
-        0) // not valid protrude configuration
+        0) // not valid retract configuration
       continue;
     if (nuc_(r, c) == 1) // can't retract nucleus
       continue;
@@ -1490,8 +1496,8 @@ void CellModel::correct_concentrations() {
   // Calculate amount of signal that needs to be distributed from all pixels
   const double A_dist = A_cor_sum_ / V_;
   const double I_dist = I_cor_sum_ / V_;
-  const double AC_dist = AC_cor_sum_ / (V_ - V0_nuc_);
-  const double IC_dist = IC_cor_sum_ / (V_ - V0_nuc_);
+  const double AC_dist = AC_cor_sum_ / (V_ - V_nuc_);
+  const double IC_dist = IC_cor_sum_ / (V_ - V_nuc_);
 
   // #pragma omp parallel for collapse(2)
   for (int j = frame_col_start_; j <= frame_col_end_; j++) {
@@ -1697,73 +1703,81 @@ void CellModel::update_dyn_nuc_field() {
 
 void CellModel::update_adhesion_field() {
   /**
-   * This function updates the adhesion field based on the positions of the
-   * adhesions. A Gaussian-smoothed adhesion field is first calculated for
-   * each of the adhesion points, and then the points for the rest of the
-   * pixels on the cell are calculated. The field is then normalized using IDW
-   * normalization method, which produces a distribution similar to the
-   * original code but runs faster. The values are then again normalized to be
-   * between 0 and 1 and inverted to act as a protrusion probability.
+   * Update adhesion field logic. Works by computing normalization variables at
+   * each adhesion, then applying a weighted Gaussian over every pixel from the
+   * adhesions. Then inverts and normalizes adh_f, and used to calculate k0_adh
+   * with IDW.
    */
 
+  // Precompute constants
   const double sigma_2 = adh_sigma_ * adh_sigma_;
   const double ampl = 1 / (2 * M_PI * sigma_2);
-  const double eps = 1e-10;
 
-  // Calculate for adhesions
+  // Position of adhesions as doubles
   Mat_d adh_pos_d = adh_pos_.cast<double>();
-  Vec_d norm_sq = adh_pos_d.colwise().squaredNorm();
-  Mat_d dot_prod = -2 * adh_pos_d.transpose() * adh_pos_d;
-  Mat_d dist2 = dot_prod;
-  dist2.colwise() += norm_sq;
-  dist2.rowwise() += norm_sq.transpose();
-  Mat_d f_ind = (-dist2.array() / (2.0 * sigma_2)).exp().matrix();
-  Arr_d adh_g = f_ind.rowwise().sum().array() * ampl;
 
-  // Calculate for non-adhesions
-  adh_f_.setZero();
-  // #pragma omp parallel for collapse(2)
+  // Precompute adh_g at adhesion positions for IDW calculation
+  Vec_d norm_sq_adh = adh_pos_d.colwise().squaredNorm();
+  Mat_d dist2_mat_adh =
+      ((-2 * adh_pos_d.transpose() * adh_pos_d).colwise() + norm_sq_adh)
+          .rowwise() +
+      norm_sq_adh.transpose();
+  Vec_d adh_g_at_adhesions =
+      ((-dist2_mat_adh.array() / (2.0 * sigma_2)).exp().rowwise().sum()) * ampl;
+
+  // Calculate adh_g at all frame pixels and find the maximum value for
+  // normalization
+  double max_adh_g = 0;
   for (int i = frame_row_start_; i <= frame_row_end_; i++) {
     for (int j = frame_col_start_; j <= frame_col_end_; j++) {
-      // Only need to calculate for pixels on outline or inner outline
-      // because those are the only pixels that can be protruded or retracted
-      if (outline_.coeff(i, j) == 0 && inner_outline_.coeff(i, j) == 0)
-        continue;
-      // Don't need to calculate for adhesions because values are fixed
       if (adh_.coeff(i, j) == 1) {
+        // At adhesion sites, set adh_g to max and k0_adh to k0
         k0_adh_(i, j) = k0_;
+        adh_f_(i, j) = 0; // adh_f = 0 at adhesions
         continue;
       }
 
-      // Get distances to adhesions
+      // Calculate distance squared to all adhesions
       Arr_d dr = adh_pos_.row(0).cast<double>().array() - i;
       Arr_d dc = adh_pos_.row(1).cast<double>().array() - j;
       Arr_d dist2 = dr.square() + dc.square();
+      dist2 = dist2.max(1e-12); // Avoid division by zero
 
-      Arr_d gaussian = (-dist2 / (2 * sigma_2)).exp();
-      double f = gaussian.sum();
-      double norm_numer = (adh_g / dist2).sum();
-      double norm_denom = (1.0 / dist2).sum();
+      // Calculate local Gaussian intensity
+      double local_gaussian = ampl * ((-dist2 / (2.0 * sigma_2)).exp().sum());
+      adh_f_(i, j) = local_gaussian;
 
-      double adh_g_i = ampl * f;
-      double adh_f_i = adh_g_i * norm_denom / norm_numer;
-      adh_f_(i, j) = adh_f_i;
-      k0_adh_(i, j) = (k0_ - k0_min_) * k0_scalar_ * adh_f_i + k0_min_;
+      // Track max for normalization
+      if (local_gaussian > max_adh_g) {
+        max_adh_g = local_gaussian;
+      }
     }
   }
 
-  // Invert for protrusion probability calculation
-  double max_f = adh_f_
-                     .block(frame_row_start_, frame_col_start_,
-                            frame_row_end_ - frame_row_start_ + 1,
-                            frame_col_end_ - frame_col_start_ + 1)
-                     .maxCoeff();
-  // #pragma omp parallel for collapse(2)
-  for (int i = frame_row_start_; i <= frame_row_end_; i++) {
-    for (int j = frame_col_start_; j <= frame_col_end_; j++) {
-      if (adh_.coeff(i, j) != 1 &&
-          (outline_.coeff(i, j) == 1 || inner_outline_.coeff(i, j) == 1)) {
-        adh_f_(i, j) = 1 - (adh_f_(i, j) / max_f);
+  // Normalize and invert to get adh_f, calculate k0_adh
+  if (max_adh_g > 0) {
+    for (int i = frame_row_start_; i <= frame_row_end_; i++) {
+      for (int j = frame_col_start_; j <= frame_col_end_; j++) {
+        if (adh_.coeff(i, j) == 1) {
+          // Already set above
+          continue;
+        }
+
+        double local_gaussian = adh_f_(i, j);
+        double adh_g_normalized = local_gaussian / max_adh_g;
+        adh_f_(i, j) = 1.0 - adh_g_normalized;
+
+        Arr_d dr = adh_pos_.row(0).cast<double>().array() - i;
+        Arr_d dc = adh_pos_.row(1).cast<double>().array() - j;
+        Arr_d dist2 = dr.square() + dc.square();
+        dist2 = dist2.max(1e-12);
+
+        double norm_numer = (adh_g_at_adhesions.array() / dist2).sum();
+        double norm_denom = (1.0 / dist2).sum();
+
+        k0_adh_(i, j) =
+            (k0_ - k0_min_) * (local_gaussian / norm_numer) * norm_denom +
+            k0_min_;
       }
     }
   }

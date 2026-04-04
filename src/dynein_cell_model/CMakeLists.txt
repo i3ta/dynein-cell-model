@@ -1,5 +1,7 @@
 add_library(dynein_cell_model dynein_cell_model.cpp)
 
+include_directories(BEFORE SYSTEM /opt/homebrew/opt/hdf5/include)
+
 # Include directories
 target_include_directories(dynein_cell_model PUBLIC include)
 

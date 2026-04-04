@@ -24,7 +24,7 @@ gamma: 1
 delta: 1
 A0: 0.4
 s1: 0.7
-s2: 0.05
+s2: 0.2
 F0: 0.5
 kn: 1
 ks: 0.25
@@ -38,7 +38,7 @@ AC_min: 0.044
 sim_rows: 1500
 sim_cols: 600
 seed: 0
-num_iters: 500000
+num_iters: 100000
 frame_padding: 20
 diff_t: 100
 save_t: 1000
