@@ -8,9 +8,9 @@ NOTE: Need to figure out better compilation steps in the future
 export CXXFLAGS="-O3 -march=native -ffast-math -DEIGEN_NO_DEBUG -DNDEBUG"
 cmake \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET=26.0 \
     -DCMAKE_BUILD_TYPE=Release \
     -DHDF5_ROOT=/opt/homebrew/opt/hdf5 \
-    -DOpenMP_libomp_LIBRARY=/opt/homebrew/opt/libomp/lib/libomp.dylib \
     ..
 cmake --build .
 ```

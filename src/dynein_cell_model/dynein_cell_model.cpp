@@ -13,6 +13,10 @@
 #include <string>
 #include <unordered_set>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include <highfive/H5DataSet.hpp>
 #include <highfive/H5DataSpace.hpp>
 #include <highfive/H5File.hpp>
@@ -1103,12 +1107,85 @@ void CellModel::generate_dyn_field(const SpMat_i &cell_outline,
 
   // Pre-compute nuc outline coordinates for faster iteration
   std::vector<std::pair<int, int>> nuc_coords;
+  nuc_coords.reserve(nuc_outline.nonZeros());
   for (int j = 0; j < nuc_outline.outerSize(); j++) {
     for (SpMat_i::InnerIterator it_nuc(nuc_outline, j); it_nuc; ++it_nuc) {
       nuc_coords.push_back({it_nuc.row(), it_nuc.col()});
     }
   }
 
+#ifdef USE_OPENMP
+  // Collect cell outline coordinates for parallelization
+  std::vector<std::pair<int, int>> cell_coords;
+  cell_coords.reserve(cell_outline.nonZeros());
+  for (int k = 0; k < cell_outline.outerSize(); k++) {
+    for (SpMat_i::InnerIterator it(cell_outline, k); it; ++it) {
+      cell_coords.push_back({it.row(), it.col()});
+    }
+  }
+
+  // Thread-local accumulators for dyn_f and scaling
+  const int num_threads = omp_get_max_threads();
+  std::vector<Mat_d> dyn_f_local(num_threads, Mat_d::Zero(sim_rows_, sim_cols_));
+  std::vector<SpMat_i> scaling_local(num_threads);
+  for (int t = 0; t < num_threads; t++) {
+    scaling_local[t] = SpMat_i(sim_rows_, sim_cols_);
+  }
+
+  // Parallel loop over cell outline pixels
+  #pragma omp parallel
+  {
+    const int thread_id = omp_get_thread_num();
+    
+    #pragma omp for
+    for (int idx = 0; idx < static_cast<int>(cell_coords.size()); idx++) {
+      const int r = cell_coords[idx].first;
+      const int c = cell_coords[idx].second;
+
+      // Early exit if AC is too low
+      const double ac_val = AC_(r, c);
+      if (ac_val <= 0.1)
+        continue;
+
+      // get nucleus pixel closest to current pixel
+      int min_dist2 = INT_MAX;
+      int min_r = -1, min_c = -1;
+      for (const auto &nc : nuc_coords) {
+        const int dr = r - nc.first;
+        const int dc = c - nc.second;
+        const int dist2 = dr * dr + dc * dc;
+        if (dist2 < min_dist2) {
+          min_dist2 = dist2;
+          min_r = nc.first;
+          min_c = nc.second;
+        }
+      }
+
+      const double dist_f = std::sqrt(min_dist2) * (ac_val - 0.1);
+      const int r_start = std::max(min_r - n, 0);
+      const int r_end = std::min(min_r + n, sim_rows_ - 1);
+      const int c_start = std::max(min_c - n, 0);
+      const int c_end = std::min(min_c + n, sim_cols_ - 1);
+
+      for (int i = r_start; i <= r_end; ++i) {
+        for (int j = c_start; j <= c_end; ++j) {
+          if (nuc_outline.coeff(i, j) == 1) {
+            dyn_f_local[thread_id](i, j) += dist_f;
+            scaling_local[thread_id].coeffRef(i, j) += 1;
+          }
+        }
+      }
+    }
+  }
+
+  // Merge thread-local accumulators
+  for (int t = 0; t < num_threads; t++) {
+    dyn_f_ += dyn_f_local[t];
+    scaling += scaling_local[t];
+  }
+
+#else
+  // Single-threaded version
   for (int k = 0; k < cell_outline.outerSize(); k++) {
     for (SpMat_i::InnerIterator it(cell_outline, k); it; ++it) {
       const int r = it.row();
@@ -1149,6 +1226,7 @@ void CellModel::generate_dyn_field(const SpMat_i &cell_outline,
       }
     }
   }
+#endif
 
   // normalize elements
   for (int k = 0; k < scaling.outerSize(); k++) {
@@ -1616,7 +1694,9 @@ void CellModel::diffuse_k0_adh() {
   FC_new = FC_.eval();
 
   for (int k = 0; k < diff_t_; k++) {
-    // #pragma omp parallel for schedule(static)
+#ifdef USE_OPENMP
+    #pragma omp parallel for schedule(static) collapse(2)
+#endif
     for (int i = frame_row_start_; i <= frame_row_end_; i++) {
       for (int j = frame_col_start_; j <= frame_col_end_; j++) {
         if (cell_(i, j) == 1) {

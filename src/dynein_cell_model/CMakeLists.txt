@@ -5,10 +5,14 @@ include_directories(BEFORE SYSTEM /opt/homebrew/opt/hdf5/include)
 # Include directories
 target_include_directories(dynein_cell_model PUBLIC include)
 
-# -------- OpenMP --------
+# -------- OpenMP (Linux only) --------
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
     target_link_libraries(dynein_cell_model PUBLIC OpenMP::OpenMP_CXX)
+    target_compile_definitions(dynein_cell_model PUBLIC USE_OPENMP)
+    message(STATUS "OpenMP found - parallelization enabled")
+else()
+    message(STATUS "OpenMP not found - running in single-threaded mode")
 endif()
 
 # -------- Eigen3 --------
