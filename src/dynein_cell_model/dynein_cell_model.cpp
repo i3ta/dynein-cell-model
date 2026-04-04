@@ -1001,6 +1001,11 @@ void CellModel::protrude_nuc_dep() {
     const double p = prob_dist(rng);
     if (p < w) {
       nuc_(r, c) = 1;
+      // Expand bounds incrementally
+      nuc_min_r_ = std::min(nuc_min_r_, r);
+      nuc_max_r_ = std::max(nuc_max_r_, r);
+      nuc_min_c_ = std::min(nuc_min_c_, c);
+      nuc_max_c_ = std::max(nuc_max_c_, c);
       AC_cor_sum_ -= AC_(r, c);
       AC_(r, c) = 0;
       IC_cor_sum_ -= IC_(r, c);
@@ -1043,6 +1048,8 @@ void CellModel::retract_nuc_dep() {
   generate_dyn_field(inner_outline_, inner_outline_nuc_, true);
 
   // retract
+  bool recheck_bounds = false; // whether a retracted pixel was on the bounds
+                               // and the nucleus bounds need to be rechecked
   for (int i = 0; i < retract_coords.size(); i++) {
     const auto [r, c] = retract_coords[i];
 
@@ -1063,6 +1070,10 @@ void CellModel::retract_nuc_dep() {
     if (p < w) {
       nuc_(r, c) = 0;
 
+      if (r == nuc_min_r_ || r == nuc_max_r_ || c == nuc_min_c_ ||
+          c == nuc_max_c_)
+        recheck_bounds = true;
+
       // count number of neighbors and sum up values
       int n = 8 - nuc_.block<3, 3>(r - 1, c - 1)
                       .sum(); // number of cell pixels (non-nucleus)
@@ -1079,7 +1090,7 @@ void CellModel::retract_nuc_dep() {
   }
 
   // update nucleus outlines
-  update_nuc();
+  update_nuc(recheck_bounds);
 }
 
 void CellModel::generate_dyn_field(const SpMat_i &cell_outline,
@@ -1090,33 +1101,46 @@ void CellModel::generate_dyn_field(const SpMat_i &cell_outline,
   const int len = nuc_outline.nonZeros();
   int n = len / (retract ? 6 : 30);
 
+  // Pre-compute nuc outline coordinates for faster iteration
+  std::vector<std::pair<int, int>> nuc_coords;
+  for (int j = 0; j < nuc_outline.outerSize(); j++) {
+    for (SpMat_i::InnerIterator it_nuc(nuc_outline, j); it_nuc; ++it_nuc) {
+      nuc_coords.push_back({it_nuc.row(), it_nuc.col()});
+    }
+  }
+
   for (int k = 0; k < cell_outline.outerSize(); k++) {
     for (SpMat_i::InnerIterator it(cell_outline, k); it; ++it) {
       const int r = it.row();
       const int c = it.col();
 
+      // Early exit if AC is too low
+      const double ac_val = AC_(r, c);
+      if (ac_val <= 0.1)
+        continue;
+
       // get nucleus pixel closest to current pixel
-      int dist2 = 2e9;
-      int min_r, min_c;
-      for (int j = 0; j < nuc_outline.outerSize(); j++) {
-        for (SpMat_i::InnerIterator it_nuc(nuc_outline, j); it_nuc; ++it_nuc) {
-          int cur_dist2 = (r - it_nuc.row()) * (r - it_nuc.row()) +
-                          (c - it_nuc.col()) * (c - it_nuc.col());
-          if (cur_dist2 < dist2) {
-            dist2 = cur_dist2;
-            min_r = it_nuc.row();
-            min_c = it_nuc.col();
-          }
+      int min_dist2 = INT_MAX;
+      int min_r = -1, min_c = -1;
+      for (const auto &nc : nuc_coords) {
+        const int dr = r - nc.first;
+        const int dc = c - nc.second;
+        const int dist2 = dr * dr + dc * dc;
+        if (dist2 < min_dist2) {
+          min_dist2 = dist2;
+          min_r = nc.first;
+          min_c = nc.second;
         }
       }
 
-      double dist_f = std::sqrt(dist2) * std::max(AC_(r, c) - 0.1, 0.0);
-      for (int j = min_c - n; j < min_c + n; ++j) {
-        if (j < 0 || j >= sim_cols_)
-          continue;
-        for (int i = min_r - n; i < min_r + n; ++i) {
-          if (i < 0 || i >= sim_rows_)
-            continue;
+      const double dist_f = std::sqrt(min_dist2) * (ac_val - 0.1);
+      const int r_start = std::max(min_r - n, 0);
+      const int r_end = std::min(min_r + n, sim_rows_ - 1);
+      const int c_start = std::max(min_c - n, 0);
+      const int c_end = std::min(min_c + n, sim_cols_ - 1);
+
+      for (int i = r_start; i <= r_end; ++i) {
+        for (int j = c_start; j <= c_end; ++j) {
           if (nuc_outline.coeff(i, j) == 1) {
             dyn_f_(i, j) += dist_f;
             scaling.coeffRef(i, j) += 1;
@@ -1348,6 +1372,12 @@ void CellModel::initialize_helpers() {
   AC_cor_sum_ = 0;
   IC_cor_sum_ = 0;
 
+  // Initialize nucleus bounds (will be computed on first update_nuc call)
+  nuc_min_r_ = sim_rows_;
+  nuc_max_r_ = 0;
+  nuc_min_c_ = sim_cols_;
+  nuc_max_c_ = 0;
+
   // Get values for Gaussian smoothing kernel
   update_smoothing_kernel();
 
@@ -1377,10 +1407,13 @@ void CellModel::initialize_helpers() {
   k0_adh_ = Mat_d(sim_rows_, sim_cols_);
 }
 
-void CellModel::update_nuc() {
+void CellModel::update_nuc(bool recheck_bounds) {
   /**
    * Iterate through nucleus pixels and add 4-neighbors that are not nucleus to
-   * outer outline.
+   * outer outline. Uses tracked bounds for optimized iteration.
+   *
+   * @param recheck_bounds if true, rescans to find new nucleus bounds after
+   * retraction. If false, uses tracked bounds for iteration.
    */
   const int DR[8] = {-1, 1, 0, 0, -1, -1, 1, 1};
   const int DC[8] = {0, 0, -1, 1, -1, 1, -1, 1};
@@ -1388,17 +1421,60 @@ void CellModel::update_nuc() {
   // Clear outlines
   outline_nuc_.setZero();
   inner_outline_nuc_.setZero();
+  V_nuc_ = 0;
+
+  // Initialize bounds on first call (when bounds are invalid)
+  if (nuc_max_r_ == 0 && nuc_max_c_ == 0) {
+    for (int j = frame_col_start_; j <= frame_col_end_; j++) {
+      for (int i = frame_row_start_; i <= frame_row_end_; i++) {
+        if (nuc_(i, j) == 1) {
+          nuc_min_r_ = std::min(nuc_min_r_, i);
+          nuc_max_r_ = std::max(nuc_max_r_, i);
+          nuc_min_c_ = std::min(nuc_min_c_, j);
+          nuc_max_c_ = std::max(nuc_max_c_, j);
+        }
+      }
+    }
+  }
+
+  // If recheck_bounds, scan within current bounds to find new bounds
+  if (recheck_bounds) {
+    int new_min_r = sim_rows_, new_max_r = 0;
+    int new_min_c = sim_cols_, new_max_c = 0;
+    for (int j = nuc_min_c_; j <= nuc_max_c_; j++) {
+      for (int i = nuc_min_r_; i <= nuc_max_r_; i++) {
+        if (nuc_(i, j) == 1) {
+          new_min_r = std::min(new_min_r, i);
+          new_max_r = std::max(new_max_r, i);
+          new_min_c = std::min(new_min_c, j);
+          new_max_c = std::max(new_max_c, j);
+        }
+      }
+    }
+    nuc_min_r_ = new_min_r;
+    nuc_max_r_ = new_max_r;
+    nuc_min_c_ = new_min_c;
+    nuc_max_c_ = new_max_c;
+  }
+
+  // Iterate within current bounds (+1 margin for outline detection)
+  const int row_start = std::max(frame_row_start_, nuc_min_r_ - 1);
+  const int row_end = std::min(frame_row_end_, nuc_max_r_ + 1);
+  const int col_start = std::max(frame_col_start_, nuc_min_c_ - 1);
+  const int col_end = std::min(frame_col_end_, nuc_max_c_ + 1);
 
   // #pragma omp parallel
   {
     std::unordered_set<std::pair<int, int>, pair_hash> local_inner, local_outer;
 
-    // Iterate through nucleus pixels
+    // Iterate through nucleus pixels within bounding box
     // #pragma omp for nowait
-    for (int i = frame_row_start_; i <= frame_row_end_; i++) {
-      for (int j = frame_col_start_; j <= frame_col_end_; j++) {
+    for (int i = row_start; i <= row_end; i++) {
+      for (int j = col_start; j <= col_end; j++) {
         if (nuc_(i, j) == 0)
           continue;
+        V_nuc_++;
+
         bool is_inner = false;
         for (int k = 0; k < 8; k++) {
           const int nr = i + DR[k];
@@ -1408,6 +1484,7 @@ void CellModel::update_nuc() {
           if (nuc_(nr, nc) == 0) {
             is_inner = true;
             local_outer.insert({nr, nc});
+            break;
           }
         }
         if (is_inner)
@@ -1428,7 +1505,6 @@ void CellModel::update_nuc() {
   }
 
   // update nucleus volume and perimeter
-  V_nuc_ = (nuc_.array() == 1).count();
   P_nuc_ = outline_4(outline_nuc_, nuc_, sim_rows_, sim_cols_);
 }
 

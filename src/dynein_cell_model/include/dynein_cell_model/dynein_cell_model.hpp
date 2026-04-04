@@ -286,8 +286,11 @@ private:
 
   /**
    * @brief Update the nucleus outlines and values.
+   *
+   * @param recheck_bounds if true, rescans to find new nucleus bounds after
+   * retraction. If false, uses tracked bounds for iteration.
    */
-  void update_nuc();
+  void update_nuc(bool recheck_bounds = false);
 
   /**
    * @brief Update the cell outlines and values.
@@ -475,6 +478,12 @@ private:
   int V0_nuc_; ///< initial volume of the cell, set up when initial Im is read
   int V_nuc_;  ///< volume of the cell on the current step
   int P_nuc_;  ///< perimeter of the nucleus
+
+  // Nucleus bounds for optimized iteration
+  int nuc_min_r_;  ///< minimum row of nucleus
+  int nuc_max_r_;  ///< maximum row of nucleus
+  int nuc_min_c_;  ///< minimum column of nucleus
+  int nuc_max_c_;  ///< maximum column of nucleus
 
   double A_cor_sum_;  ///< Correct A values after retraction and protrusion
   double I_cor_sum_;  ///< Correct I values after retraction and protrusion
