@@ -1,15 +1,17 @@
 file(GLOB TEST_SOURCES "*.cpp")
 
-find_package(nlohmann_json REQUIRED)
-
-include(FetchContent)
-
-FetchContent_Declare(
-  yaml-cpp
-  GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-  GIT_TAG 0.8.0
-)
-FetchContent_MakeAvailable(yaml-cpp)
+# -------- nlohmann_json (FetchContent) --------
+find_package(nlohmann_json QUIET)
+if(NOT nlohmann_json_FOUND)
+    message(STATUS "nlohmann_json not found, fetching with FetchContent")
+    include(FetchContent)
+    FetchContent_Declare(
+        nlohmann_json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG v3.11.3
+    )
+    FetchContent_MakeAvailable(nlohmann_json)
+endif()
 
 foreach(test_src ${TEST_SOURCES})
     get_filename_component(test_name ${test_src} NAME_WE)
@@ -22,7 +24,6 @@ foreach(test_src ${TEST_SOURCES})
             test_utils
             tqdm
             nlohmann_json::nlohmann_json
-            yaml-cpp
     )
 endforeach()
 

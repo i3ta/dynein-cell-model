@@ -1,33 +1,90 @@
 # dynein-cell-model
 
-### Local
+## Dependencies
 
-NOTE: Need to figure out better compilation steps in the future
+### System Packages (Required)
 
+Install these before building:
+
+**Ubuntu/Debian:**
 ```bash
-export CXXFLAGS="-O3 -march=native -ffast-math -DEIGEN_NO_DEBUG -DNDEBUG"
-cmake \
-    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-    -DCMAKE_OSX_DEPLOYMENT_TARGET=26.0 \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DHDF5_ROOT=/opt/homebrew/opt/hdf5 \
-    ..
-cmake --build .
+sudo apt update
+sudo apt install -y libopencv-dev libhdf5-dev
 ```
 
+**macOS (Homebrew):**
 ```bash
-cmake \
-    -DCMAKE_BUILD_TYPE=Debug \
-    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-    -DOpenMP_libomp_LIBRARY=/opt/homebrew/opt/libomp/lib/libomp.dylib \
-    -DOpenMP_CXX_FLAGS="-O0 -g -Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include" \
-    -DOpenMP_CXX_LIB_NAMES="omp" \
-    ..
-cmake --build .
+brew install opencv hdf5
 ```
 
-### PACE
+### Finding HDF5 Paths (macOS)
+
+If CMake can't find HDF5 automatically, you may need to specify the paths:
 
 ```bash
-cmake -DOpenCV_DIR=~/installs/opencv-4.x/build/ -DCMAKE_CXX_FLAGS="-O3 -march=native -DNDEBUG" ..
+# Find HDF5 paths
+brew --prefix hdf5
+# Example output: /opt/homebrew/opt/hdf5
+
+# Find the cmake config directory
+ls /opt/homebrew/opt/hdf5/lib/cmake/
+# Example output: hdf5-1.14.6
 ```
+
+Then configure with:
+```bash
+mkdir build && cd build
+cmake .. -DHDF5_DIR=/opt/homebrew/opt/hdf5/lib/cmake/hdf5-1.14.6
+cmake --build . -j4
+```
+
+### Build
+
+```bash
+# Create build directory
+mkdir build && cd build
+
+# Configure (uses FetchContent for most dependencies)
+cmake ..
+
+# Build
+cmake --build . -j4
+```
+
+### Optional: OpenMP (for parallelization)
+
+OpenMP is auto-detected. On Linux with GCC, it will be enabled automatically.
+
+**macOS:** OpenMP requires GCC (not Clang). To enable:
+```bash
+brew install gcc
+export CC=/opt/homebrew/bin/gcc-15
+export CXX=/opt/homebrew/bin/g++-15
+cmake ..
+```
+
+**Linux:** Install GCC if not present:
+```bash
+sudo apt install build-essential
+```
+
+## Quick Start
+
+```bash
+# After building
+./build/examples/run_model_metrics <config_file>
+```
+
+## Testing
+
+```bash
+# Run tests
+cd build && ctest
+```
+
+## Project Structure
+
+- `src/dynein_cell_model/` - Main cell model library
+- `examples/` - Example executables
+- `scripts/` - Python analysis scripts
+- `cmake/` - CMake configuration files
