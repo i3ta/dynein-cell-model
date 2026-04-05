@@ -3,6 +3,10 @@ add_library(dynein_cell_model dynein_cell_model.cpp)
 # Include directories
 target_include_directories(dynein_cell_model PUBLIC include)
 
+# -------- CURL (for HDF5 system package) --------
+find_package(CURL REQUIRED)
+target_link_libraries(dynein_cell_model PRIVATE CURL::libcurl)
+
 # -------- OpenMP (if available) --------
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
