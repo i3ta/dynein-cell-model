@@ -18,11 +18,9 @@ else()
 endif()
 
 # -------- HDF5 (system package) --------
-find_package(HDF5 REQUIRED COMPONENTS CXX)
-message(STATUS "HDF5 include path: ${HDF5_INCLUDE_DIRS}")
-message(STATUS "HDF5 libraries: ${HDF5_LIBRARIES}")
+find_package(HDF5 REQUIRED COMPONENTS C CXX)
 target_include_directories(dynein_cell_model PRIVATE ${HDF5_INCLUDE_DIRS})
-target_link_libraries(dynein_cell_model PRIVATE ${HDF5_LIBRARIES})
+target_link_libraries(dynein_cell_model PUBLIC HDF5::HDF5)
 
 # -------- Eigen3 (FetchContent) --------
 find_package(Eigen3 3.4 QUIET)
