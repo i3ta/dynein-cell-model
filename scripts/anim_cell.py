@@ -14,22 +14,31 @@ def main(dir: str, output: str):
     dset_cell = file["cell"]
     dset_nuc = file["nuc"]
     dset_A = file["A"]
+    dset_AC = file["AC"]
 
     data_cell = dset_cell[:, :, :].astype(np.int32) + dset_nuc[:, :, :].astype(np.int32)
     data_A = dset_A[:, :, :]
+    data_AC = dset_AC[:, :, :]
 
     t_len: int = dset_cell.shape[0]
 
-    fig, axs = plt.subplots(1, 2)
+    fig, axs = plt.subplots(1, 3)
     im0 = axs[0].imshow(data_cell[0], interpolation="nearest", cmap="inferno")
-    im1 = axs[1].imshow(data_A[0], interpolation="nearest", cmap="inferno", vmin=0.0, vmax=1.0)
+    im1 = axs[1].imshow(
+        data_A[0], interpolation="nearest", cmap="inferno", vmin=0.0, vmax=1.0
+    )
+    im2 = axs[2].imshow(
+        data_AC[0], interpolation="nearest", cmap="inferno", vmin=0.0, vmax=1.0
+    )
     fig.suptitle(f"t = {dset_t[0]}")
+    fig.tight_layout()
 
     def animate(i):
         im0.set_array(data_cell[i])
         im1.set_array(data_A[i])
+        im2.set_array(data_AC[i])
         fig.suptitle(f"t = {dset_t[i]}")
-        return (im0, im1)
+        return (im0, im1, im2)
 
     anim = FuncAnimation(fig, animate, frames=range(0, t_len), blit=True)
     anim.save(output)
