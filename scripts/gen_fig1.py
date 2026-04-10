@@ -23,6 +23,10 @@ def main(dir: str, output: str):
         data_AC = dset_AC[:, :, :]
         t_len = dset_cell.shape[0]
 
+    env_img = plt.imread(os.path.join(dir, "env.png"))
+    env_mask = (env_img > 0).astype(np.float32)
+    data_cell = np.maximum(data_cell, 0.25 * env_mask)
+
     frames = [0, t_len // 3, 2 * t_len // 3, t_len - 1]
     fig, axs = plt.subplots(
         3, 5, figsize=(12, 16), gridspec_kw={"width_ratios": [1, 1, 1, 1, 0.2]}

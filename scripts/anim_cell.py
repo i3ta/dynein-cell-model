@@ -20,6 +20,11 @@ def main(dir: str, output: str):
     data_A = dset_A[:, :, :]
     data_AC = dset_AC[:, :, :]
 
+    env_path = os.path.join(dir, "env.png")
+    env_img = plt.imread(env_path)
+    env_mask = (env_img > 0).astype(np.float32)
+    data_cell = np.maximum(data_cell, 0.25 * env_mask)
+
     t_len: int = dset_cell.shape[0]
 
     fig, axs = plt.subplots(1, 3)
