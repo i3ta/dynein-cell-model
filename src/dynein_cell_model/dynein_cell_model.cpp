@@ -602,7 +602,7 @@ std::vector<double> CellModel::step_timed() {
   std::vector<double> times;
   times.reserve(6);
 
-  TIME_AND_STORE(times, if (t_ % adh_t_ == 0) rearrange_adhesions());
+  TIME_AND_STORE(times, if (t_ % adh_t_ == 0) rearrange_adhesions(false));
   TIME_AND_STORE(times, if (t_ % fr_t_ == 0) update_frame());
 
   TIME_AND_STORE(times, protrude_nuc(); retract_nuc(););
@@ -1126,18 +1126,19 @@ void CellModel::generate_dyn_field(const SpMat_i &cell_outline,
 
   // Thread-local accumulators for dyn_f and scaling
   const int num_threads = omp_get_max_threads();
-  std::vector<Mat_d> dyn_f_local(num_threads, Mat_d::Zero(sim_rows_, sim_cols_));
+  std::vector<Mat_d> dyn_f_local(num_threads,
+                                 Mat_d::Zero(sim_rows_, sim_cols_));
   std::vector<SpMat_i> scaling_local(num_threads);
   for (int t = 0; t < num_threads; t++) {
     scaling_local[t] = SpMat_i(sim_rows_, sim_cols_);
   }
 
-  // Parallel loop over cell outline pixels
-  #pragma omp parallel
+// Parallel loop over cell outline pixels
+#pragma omp parallel
   {
     const int thread_id = omp_get_thread_num();
-    
-    #pragma omp for
+
+#pragma omp for
     for (int idx = 0; idx < static_cast<int>(cell_coords.size()); idx++) {
       const int r = cell_coords[idx].first;
       const int c = cell_coords[idx].second;
@@ -1695,7 +1696,7 @@ void CellModel::diffuse_k0_adh() {
 
   for (int k = 0; k < diff_t_; k++) {
 #ifdef USE_OPENMP
-    #pragma omp parallel for schedule(static) collapse(2)
+#pragma omp parallel for schedule(static) collapse(2)
 #endif
     for (int i = frame_row_start_; i <= frame_row_end_; i++) {
       for (int j = frame_col_start_; j <= frame_col_end_; j++) {
