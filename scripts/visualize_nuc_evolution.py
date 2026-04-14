@@ -10,6 +10,7 @@ def main(input_dir: str, output_file: str):
     results_path = os.path.join(input_dir, "results.h5")
 
     with File(results_path, "r") as f:
+        t = f["t"][:]
         cell = f["cell"][:]
         nuc = f["nuc"][:]
 
@@ -36,14 +37,12 @@ def main(input_dir: str, output_file: str):
 
     font_size = min(12, max(6, 120 // n_t))
     tick_interval = max(1, n_t // 10)
-    tick_positions = list(range(0, n_t, tick_interval))
-    ax.set_xticks(tick_positions)
-    ax.set_xticklabels(tick_positions, fontsize=font_size)
-    ax.set_xlabel("Timestep", fontsize=font_size)
+    tick_indices = list(range(0, n_t, tick_interval))
+    tick_labels = [f"{t[i]:.1f}" for i in tick_indices]
+    ax.set_xticks(tick_indices)
+    ax.set_xticklabels(tick_labels, fontsize=font_size, rotation=45)
+    ax.set_xlabel("Time (t)", fontsize=font_size)
     ax.set_ylabel("Position (pixels)", fontsize=font_size)
-    ax.set_title(
-        f"Nucleus Evolution on Cell (t=0 to {n_t - 1})", fontsize=font_size + 2
-    )
 
     plt.tight_layout()
     plt.savefig(output_file, dpi=150)
