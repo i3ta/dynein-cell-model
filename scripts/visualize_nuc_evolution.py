@@ -1,8 +1,9 @@
 import os
 import sys
+
+import matplotlib.pyplot as plt
 import numpy as np
 from h5py import File
-import matplotlib.pyplot as plt
 
 
 def main(input_dir: str, output_file: str):
@@ -18,7 +19,9 @@ def main(input_dir: str, output_file: str):
     cell_mid = cell[:, :, mid_col].T
     nuc_mid = nuc[:, :, mid_col].T
 
-    fig, ax = plt.subplots(figsize=(n_t / 50, rows / 50), dpi=100)
+    fig_width = 8
+    fig_height = 4
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=100)
     ax.set_aspect("equal")
 
     cell_color = np.zeros((rows, n_t, 3))
@@ -31,13 +34,16 @@ def main(input_dir: str, output_file: str):
 
     ax.imshow(nuc_overlay, interpolation="nearest")
 
+    font_size = min(12, max(6, 120 // n_t))
     tick_interval = max(1, n_t // 10)
     tick_positions = list(range(0, n_t, tick_interval))
     ax.set_xticks(tick_positions)
-    ax.set_xticklabels(tick_positions)
-    ax.set_xlabel("Timestep")
-    ax.set_ylabel("Position (pixels)")
-    ax.set_title(f"Nucleus Evolution on Cell (t=0 to {n_t - 1})")
+    ax.set_xticklabels(tick_positions, fontsize=font_size)
+    ax.set_xlabel("Timestep", fontsize=font_size)
+    ax.set_ylabel("Position (pixels)", fontsize=font_size)
+    ax.set_title(
+        f"Nucleus Evolution on Cell (t=0 to {n_t - 1})", fontsize=font_size + 2
+    )
 
     plt.tight_layout()
     plt.savefig(output_file, dpi=150)
