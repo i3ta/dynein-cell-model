@@ -1932,9 +1932,9 @@ void CellModel::update_adhesion_field() {
         double norm_numer = (adh_g_at_adhesions.array() / dist2).sum();
         double norm_denom = (1.0 / dist2).sum();
 
-        k0_adh_(i, j) =
-            (k0_ - k0_min_) * (local_gaussian / norm_numer) * norm_denom +
-            k0_min_;
+        k0_adh_(i, j) = (k0_ - k0_min_) * k0_scalar_ *
+                            (local_gaussian / norm_numer) * norm_denom +
+                        k0_min_;
       }
     }
   }
