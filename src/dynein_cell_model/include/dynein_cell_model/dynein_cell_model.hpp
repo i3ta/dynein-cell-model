@@ -3,7 +3,6 @@
 
 #include <random>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include <Eigen/Dense>
@@ -24,6 +23,7 @@ typedef Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>
 typedef Eigen::SparseMatrix<int> SpMat_i;
 typedef Eigen::VectorXd Vec_d;
 typedef Eigen::ArrayXd Arr_d;
+typedef Eigen::ArrayXi Arr_i;
 
 /**
  * @brief Create a matrix mask from a png image
@@ -75,13 +75,10 @@ public:
   double R_nuc_;    ///< controls sharpness of roundness constraint
   double
       dyn_basal_; ///< basal weight for protrusion probability of dynein factor
-  double prop_factor_;  ///< number in range [0, 1] to multiply protrusions and
-                        ///< retraction weights to study effect of scaling
-  double dyn_norm_k_;   ///< "steepness" value for smoothing dynein force values
-                        ///< using sigmoid
-  double dyn_sigma_;    ///< sigma value for gaussian smoothing of dynein force
-  int dyn_kernel_size_; ///< size of the gaussian smoothing kernel (should be
-                        ///< odd)
+  double prop_factor_; ///< number in range [0, 1] to multiply protrusions and
+                       ///< retraction weights to study effect of scaling
+  double dyn_sigma_;   ///< sigma value for gaussian smoothing of dynein force
+  double dyn_scale_;   ///< factor to scale dyn_f_ values by
 
   // Reaction-diffusion parameters
   double DA_;        ///< Diffusion coefficient of active GTPase
@@ -336,22 +333,6 @@ private:
   void update_adhesion_field();
 
   /**
-   * @brief Get the dyn_f value at (r, c) smoothed with a Gaussian smoothing
-   * kernel.
-   *
-   * @param r row
-   * @param c column
-   *
-   * @return smoothed dyn_f
-   */
-  const double get_smoothed_dyn_f(const int r, const int c);
-
-  /**
-   * @brief Update and save the values of the Gaussian smoothing kernel.
-   */
-  void update_smoothing_kernel();
-
-  /**
    * @brief Get the integer encoding of the 8-neighbors of a specific pixel in a
    * matrix.
    *
@@ -417,13 +398,10 @@ private:
   double R_nuc_;    ///< controls sharpness of roundness constraint
   double
       dyn_basal_; ///< basal weight for protrusion probability of dynein factor
-  double prop_factor_;  ///< number in range [0, 1] to multiply protrusions and
-                        ///< retraction weights to study effect of scaling
-  double dyn_norm_k_;   ///< "steepness" value for smoothing dynein force values
-                        ///< using sigmoid
-  double dyn_sigma_;    ///< sigma value for gaussian smoothing of dynein force
-  int dyn_kernel_size_; ///< size of the gaussian smoothing kernel (should be
-                        ///< odd)
+  double prop_factor_; ///< number in range [0, 1] to multiply protrusions and
+                       ///< retraction weights to study effect of scaling
+  double dyn_sigma_;   ///< sigma value for gaussian smoothing of dynein force
+  double dyn_scale_;   ///< factor to scale dyn_f_ values by
 
   // Reaction-diffusion parameters
   double DA_;        ///< Diffusion coefficient of active GTPase
@@ -480,10 +458,10 @@ private:
   int P_nuc_;  ///< perimeter of the nucleus
 
   // Nucleus bounds for optimized iteration
-  int nuc_min_r_;  ///< minimum row of nucleus
-  int nuc_max_r_;  ///< maximum row of nucleus
-  int nuc_min_c_;  ///< minimum column of nucleus
-  int nuc_max_c_;  ///< maximum column of nucleus
+  int nuc_min_r_; ///< minimum row of nucleus
+  int nuc_max_r_; ///< maximum row of nucleus
+  int nuc_min_c_; ///< minimum column of nucleus
+  int nuc_max_c_; ///< maximum column of nucleus
 
   double A_cor_sum_;  ///< Correct A values after retraction and protrusion
   double I_cor_sum_;  ///< Correct I values after retraction and protrusion
@@ -511,11 +489,8 @@ private:
   Mat_d adh_f_;  ///< field of adhesion influence
   Mat_d dyn_f_;  ///< dynein field force
 
-  Mat_d g_dyn_f_; ///< saved kernel for gaussian smoothing of dyn_f
-  std::unordered_set<int> protrude_conf_; ///< numerical encoding of allowed
-                                          ///< protrusion configurations
-  std::unordered_set<int> retract_conf_;  ///< numerical encoding of allowed
-                                          ///< retraction configurations
+  std::array<bool, 256> protrude_conf_; ///< valid protrusion configurations
+  std::array<bool, 256> retract_conf_;  ///< valid retraction configurations
 
   // random number generation helpers
   std::mt19937 rng;

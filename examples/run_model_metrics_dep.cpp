@@ -12,10 +12,6 @@
 #include <metric_utils/metric_utils.hpp>
 #include <tqdm.hpp>
 
-#ifdef _OPENMP
-#include <omp.h>
-#endif
-
 using json = nlohmann::json;
 
 namespace dcm = dynein_cell_model;
@@ -100,11 +96,19 @@ int main(int argc, char *argv[]) {
     }
   }
 
-#ifdef USE_OPENMP
-  const int max_threads = omp_get_max_threads();
-  Eigen::initParallel();
-  Eigen::setNbThreads(max_threads);
-#endif
+  // DEBUG: Print initialization stats
+  double ac_sum = 0, ic_sum = 0;
+  int ac_count = 0, ic_count = 0;
+  for (int j = 0; j < config.sim_cols_; ++j) {
+    for (int i = 0; i < config.sim_rows_; ++i) {
+      if (cell_mask(i, j) == 1 && nucleus_mask(i, j) == 0) {
+        ac_sum += AC_init(i, j);
+        ac_count++;
+        ic_sum += IC_init(i, j);
+        ic_count++;
+      }
+    }
+  }
 
   // create cell
   dcm::CellModel cell(config);
@@ -130,7 +134,7 @@ int main(int argc, char *argv[]) {
   auto A = tq::trange(config.num_iters_);
   for (int i : A) {
     timer.reset();
-    times.push_back(cell.step_timed());
+    times.push_back(cell.step_dep());
     iter_times.push_back(timer.elapsed().count());
 
     Eigen::Map<dcm::Arr_d> iter_arr(iter_times.data(), iter_times.size());

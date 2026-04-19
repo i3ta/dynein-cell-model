@@ -3,12 +3,10 @@
 
 #include <algorithm>
 #include <cmath>
-#include <deque>
 #include <fstream>
 #include <functional>
 #include <map>
 #include <random>
-#include <stack>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
@@ -279,6 +277,39 @@ int outline_4(const SpMat_i &outline, const Mat_i &body, int sim_rows,
 
   return perim;
 }
+
+void gaussian_blur(Mat_d &mat, int row_start, int row_end, int col_start,
+                   int col_end, double sigma) {
+  const int block_rows = row_end - row_start + 1;
+  const int block_cols = col_end - col_start + 1;
+  const int radius = std::ceil(3.0 * sigma);
+  const int size = radius * 2 + 1;
+  Vec_d kernel(size);
+  for (int i = 0; i < size; ++i) {
+    float x = i - radius;
+    kernel[i] = std::exp(-(x * x) / (2.0f * sigma * sigma));
+  }
+  kernel /= kernel.sum();
+
+  Mat_d padded = Mat_d::Zero(block_rows + 2 * radius, block_cols + 2 * radius);
+  padded.block(radius, radius, block_rows, block_cols) =
+      mat.block(row_start, col_start, block_rows, block_cols);
+
+  Mat_d tmp = Mat_d::Zero(block_rows + 2 * radius, block_cols);
+  for (int r = 0; r < padded.rows(); ++r) {
+    for (int k = 0; k < size; ++k) {
+      tmp.row(r) += kernel[k] * padded.block(r, k, 1, block_cols);
+    }
+  }
+
+  auto target = mat.block(row_start, col_start, block_rows, block_cols);
+  target.setZero();
+  for (int c = 0; c < block_cols; ++c) {
+    for (int k = 0; k < size; ++k) {
+      target.col(c) += kernel[k] * tmp.block(k, c, block_rows, 1);
+    }
+  }
+}
 }; // namespace
 
 Mat_i matrix_from_mask(std::string filepath, cv::Vec3b color) {
@@ -310,6 +341,8 @@ CellModelConfig::CellModelConfig() {
   R_nuc_ = 1;
   R0_ = 20;
   dyn_basal_ = 0.9;
+  dyn_sigma_ = 8.56;
+  dyn_scale_ = 0.683;
   s1_ = 0.7;
   s2_ = 0.2;
   diff_t_ = 100;
@@ -328,7 +361,6 @@ CellModelConfig::CellModelConfig() {
   sim_cols_ = 600;
   seed_ = 0;
   num_iters_ = 5000000;
-  dyn_kernel_size_ = 5;
 }
 
 CellModelConfig::CellModelConfig(std::string config_file) {
@@ -350,9 +382,8 @@ CellModelConfig::CellModelConfig(std::string config_file) {
   R_nuc_ = config["R_nuc"].as<double>();
   dyn_basal_ = config["dyn_basal"].as<double>();
   prop_factor_ = config["prop_factor"].as<double>();
-  dyn_norm_k_ = config["dyn_norm_k"].as<double>();
   dyn_sigma_ = config["dyn_sigma"].as<double>();
-  dyn_kernel_size_ = config["dyn_kernel_size"].as<int>();
+  dyn_scale_ = config["dyn_scale"].as<double>();
   DA_ = config["DA"].as<double>();
   DI_ = config["DI"].as<double>();
   k0_ = config["k0"].as<double>();
@@ -400,9 +431,8 @@ void CellModelConfig::save_file(std::string dest_file) {
   config["R_nuc"] = R_nuc_;
   config["dyn_basal"] = dyn_basal_;
   config["prop_factor"] = prop_factor_;
-  config["dyn_norm_k"] = dyn_norm_k_;
   config["dyn_sigma"] = dyn_sigma_;
-  config["dyn_kernel_size"] = dyn_kernel_size_;
+  config["dyn_scale"] = dyn_scale_;
   config["DA"] = DA_;
   config["DI"] = DI_;
   config["k0"] = k0_;
@@ -454,9 +484,8 @@ void CellModel::update_config(CellModelConfig config) {
   R_nuc_ = config.R_nuc_;
   dyn_basal_ = config.dyn_basal_;
   prop_factor_ = config.prop_factor_;
-  dyn_norm_k_ = config.dyn_norm_k_;
   dyn_sigma_ = config.dyn_sigma_;
-  dyn_kernel_size_ = config.dyn_kernel_size_;
+  dyn_scale_ = config.dyn_scale_;
   DA_ = config.DA_;
   DI_ = config.DI_;
   k0_ = config.k0_;
@@ -520,9 +549,8 @@ const CellModelConfig CellModel::get_config() {
   config.R_nuc_ = R_nuc_;
   config.dyn_basal_ = dyn_basal_;
   config.prop_factor_ = prop_factor_;
-  config.dyn_norm_k_ = dyn_norm_k_;
   config.dyn_sigma_ = dyn_sigma_;
-  config.dyn_kernel_size_ = dyn_kernel_size_;
+  config.dyn_scale_ = dyn_scale_;
   config.DA_ = DA_;
   config.DI_ = DI_;
   config.k0_ = k0_;
@@ -605,13 +633,13 @@ std::vector<double> CellModel::step_timed() {
   TIME_AND_STORE(times, if (t_ % adh_t_ == 0) rearrange_adhesions(false));
   TIME_AND_STORE(times, if (t_ % fr_t_ == 0) update_frame());
 
+  TIME_AND_STORE(times, update_dyn_nuc_field());
   TIME_AND_STORE(times, protrude_nuc(); retract_nuc(););
 
   TIME_AND_STORE(times, protrude(); retract(););
 
   TIME_AND_STORE(times, correct_concentrations());
   TIME_AND_STORE(times, diffuse_k0_adh());
-  TIME_AND_STORE(times, update_dyn_nuc_field());
 
   TIME_AND_STORE(times, if (++t_ % save_t_ == 0) save_state());
 
@@ -855,38 +883,53 @@ void CellModel::protrude_nuc() {
    * - Update the nucleus outlines.
    */
 
-  // calculate probability coefficients
+  // precompute constants
   const double V_cor = 1.0 / (1 + std::exp((V_nuc_ - V0_nuc_) / T_nuc_));
   const double R = double(P_nuc_ * P_nuc_) / V_nuc_;
   const double R_cor = 1.0 / (1 + std::exp((R - R0_) / R_nuc_));
   const double n_diag = 1.0 / std::pow(M_SQRT2, g_);
   const double C = 4.0 * (1.0 + n_diag);
 
-  // randomize protrude order
+  // perform vectorized calculations over entire block
+  const int r_start = nuc_min_r_ - 1, c_start = nuc_min_c_ - 1;
+  const int rows = nuc_max_r_ - nuc_min_r_ + 3;
+  const int cols = nuc_max_c_ - nuc_min_c_ + 3;
+
+  // n_matrix holds the 'n' value for every pixel in the nucleus vicinity
+  Eigen::MatrixXd n_matrix = Eigen::MatrixXd::Zero(rows, cols);
+  auto n_acc = n_matrix.array();
+
+  n_acc +=
+      n_diag *
+      (nuc_.block(r_start - 1, c_start - 1, rows, cols).array().cast<double>() +
+       nuc_.block(r_start + 1, c_start - 1, rows, cols).array().cast<double>() +
+       nuc_.block(r_start + 1, c_start + 1, rows, cols).array().cast<double>() +
+       nuc_.block(r_start - 1, c_start + 1, rows, cols).array().cast<double>());
+  n_acc +=
+      (nuc_.block(r_start - 1, c_start, rows, cols).array().cast<double>() +
+       nuc_.block(r_start, c_start - 1, rows, cols).array().cast<double>() +
+       nuc_.block(r_start + 1, c_start, rows, cols).array().cast<double>() +
+       nuc_.block(r_start, c_start + 1, rows, cols).array().cast<double>());
+
+  // protrude logic
   std::vector<std::pair<int, int>> protrude_coords =
       randomize_nonzero(outline_nuc_, rng);
 
-  // protrude
-  for (int i = 0; i < protrude_coords.size(); i++) {
-    auto [r, c] = protrude_coords[i];
-
-    if (outline_.coeff(r, c) == 1 ||
-        protrude_conf_.count(encode_8(nuc_, r, c)) ==
-            0) // Check if protrusion would be valid
+  for (auto &[r, c] : protrude_coords) {
+    uint8_t config = encode_8(nuc_, r, c);
+    if (outline_.coeff(r, c) == 1 || !protrude_conf_[config])
       continue;
 
-    // get protrusion probability
-    const double n = n_diag * (nuc_(r - 1, c - 1) + nuc_(r + 1, c - 1) +
-                               nuc_(r + 1, c + 1) + nuc_(r - 1, c + 1)) +
-                     nuc_(r - 1, c) + nuc_(r, c - 1) + nuc_(r + 1, c) +
-                     nuc_(r, c + 1);
-    const double w = std::pow(n / C, k_nuc_) * R_cor * V_cor *
-                     (dyn_basal_ + (1 - dyn_basal_) * get_smoothed_dyn_f(r, c));
+    // lookup pre-calculated 'n'
+    // NOTE: cells may change but n is still from initial state
+    double n = n_matrix(r - r_start, c - c_start);
 
-    // try protruding to this pixel
-    const double p = prob_dist(rng);
-    if (p < w) {
+    const double w = std::pow(n / C, k_nuc_) * R_cor * V_cor *
+                     (dyn_basal_ + (1 - dyn_basal_) * dyn_f_(r, c));
+
+    if (prob_dist(rng) < w) {
       nuc_(r, c) = 1;
+
       AC_cor_sum_ -= AC_(r, c);
       AC_(r, c) = 0;
       IC_cor_sum_ -= IC_(r, c);
@@ -895,7 +938,6 @@ void CellModel::protrude_nuc() {
     }
   }
 
-  // update nucleus outlines
   update_nuc();
 }
 
@@ -908,40 +950,61 @@ void CellModel::retract_nuc() {
    * - counting the neighbors n we instead count the empty pixels
    * - dyn_f_ values are replaced with 1 - dyn_f_
    */
-  // calculate probability coefficients
+
+  // precompute constants
   const double V_cor = 1.0 / (1 + std::exp(-(V_nuc_ - V0_nuc_) / T_nuc_));
   const double R = double(P_nuc_ * P_nuc_) / V_nuc_;
   const double R_cor = 1.0 / (1 + std::exp((R - R0_) / R_nuc_));
   const double n_diag = 1.0 / std::pow(M_SQRT2, g_);
   const double C = 4.0 * (1.0 + n_diag);
 
-  // randomize retract order
+  // perform vectorized calculations over entire block
+  const int r_start = nuc_min_r_ - 1;
+  const int c_start = nuc_min_c_ - 1;
+  const int rows = nuc_max_r_ - nuc_min_r_ + 3;
+  const int cols = nuc_max_c_ - nuc_min_c_ + 3;
+
+  // n_matrix holds the 'n' value for every pixel in the nucleus vicinity
+  Eigen::MatrixXd inv_nuc =
+      1.0 - nuc_.block(r_start - 1, c_start - 1, rows + 2, cols + 2)
+                .array()
+                .cast<double>();
+
+  Eigen::MatrixXd n_matrix = Eigen::MatrixXd::Zero(rows, cols);
+  auto n_acc = n_matrix.array();
+
+  // Diagonal neighbors (using the pre-inverted block)
+  n_acc += n_diag * (inv_nuc.block(0, 0, rows, cols).array() + // top-left
+                     inv_nuc.block(2, 0, rows, cols).array() + // bottom-left
+                     inv_nuc.block(0, 2, rows, cols).array() + // top-right
+                     inv_nuc.block(2, 2, rows, cols).array()   // bottom-right
+                    );
+  // Orthogonal neighbors
+  n_acc += (inv_nuc.block(0, 1, rows, cols).array() + // top
+            inv_nuc.block(1, 0, rows, cols).array() + // left
+            inv_nuc.block(2, 1, rows, cols).array() + // bottom
+            inv_nuc.block(1, 2, rows, cols).array()   // right
+  );
+
+  // retract logic
   std::vector<std::pair<int, int>> retract_coords =
       randomize_nonzero(inner_outline_nuc_, rng);
 
-  // protrude
-  for (int i = 0; i < retract_coords.size(); i++) {
-    auto [r, c] = retract_coords[i];
-
-    if (inner_outline_.coeff(r, c) == 0 ||
-        retract_conf_.count(encode_8(nuc_, r, c)) ==
-            0) // Check if retraction would be valid
+  for (auto &[r, c] : retract_coords) {
+    uint8_t config = encode_8(nuc_, r, c);
+    if (!retract_conf_[config])
       continue;
 
-    // get protrusion probability
-    const double n = n_diag * (!nuc_(r - 1, c - 1) + !nuc_(r + 1, c - 1) +
-                               !nuc_(r + 1, c + 1) + !nuc_(r - 1, c + 1)) +
-                     !nuc_(r - 1, c) + !nuc_(r, c - 1) + !nuc_(r + 1, c) +
-                     !nuc_(r, c + 1);
+    // lookup pre-calculated 'n'
+    // NOTE: cells may change but n is still from initial state
+    double n = n_matrix(r - r_start, c - c_start);
+
     const double w =
         std::pow(n / C, k_nuc_) * R_cor * V_cor *
         (dyn_basal_ +
-         (1 - dyn_basal_) *
-             (1 - get_smoothed_dyn_f(r, c))); // Inverted from protrusion
+         (1 - dyn_basal_) * (1 - dyn_f_(r, c))); // inverted from protrusion
 
-    // try retracting this pixel
-    const double p = prob_dist(rng);
-    if (p < w) {
+    if (prob_dist(rng) < w) {
       nuc_(r, c) = 0;
 
       // count number of neighbors and sum up values
@@ -959,7 +1022,6 @@ void CellModel::retract_nuc() {
     }
   }
 
-  // update nucleus outlines
   update_nuc();
 }
 
@@ -988,9 +1050,9 @@ void CellModel::protrude_nuc_dep() {
   for (int i = 0; i < protrude_coords.size(); i++) {
     auto [r, c] = protrude_coords[i];
 
-    if (outline_.coeff(r, c) == 1 ||
-        protrude_conf_.count(encode_8(nuc_, r, c)) ==
-            0) // Check if protrusion would be valid
+    if (outline_.coeff(r, c) == 1 || !protrude_conf_[encode_8(nuc_, r, c)]
+
+        ) // Check if protrusion would be valid
       continue;
 
     // get protrusion probability
@@ -1057,8 +1119,8 @@ void CellModel::retract_nuc_dep() {
   for (int i = 0; i < retract_coords.size(); i++) {
     const auto [r, c] = retract_coords[i];
 
-    if (retract_conf_.count(encode_8(nuc_, r, c)) ==
-        0) // Check if retraction would be valid
+    if (!retract_conf_[encode_8(nuc_, r,
+                                c)]) // Check if retraction would be valid
       continue;
 
     // get retraction probability
@@ -1278,8 +1340,8 @@ void CellModel::protrude() {
   for (int i = 0; i < protrude_coords.size(); i++) {
     auto &[r, c] = protrude_coords[i];
 
-    if (protrude_conf_.count(encode_8(cell_, r, c)) ==
-        0) // not valid protrude configuration
+    if (!protrude_conf_[encode_8(cell_, r,
+                                 c)]) // not valid protrude configuration
       continue;
 
     double w;
@@ -1360,8 +1422,8 @@ void CellModel::retract() {
   for (int i = 0; i < retract_coords.size(); i++) {
     auto &[r, c] = retract_coords[i];
 
-    if (retract_conf_.count(encode_8(cell_, r, c)) ==
-        0) // not valid retract configuration
+    if (!retract_conf_[encode_8(cell_, r,
+                                c)]) // not valid retract configuration
       continue;
     if (nuc_(r, c) == 1) // can't retract nucleus
       continue;
@@ -1456,9 +1518,6 @@ void CellModel::initialize_helpers() {
   nuc_max_r_ = 0;
   nuc_min_c_ = sim_cols_;
   nuc_max_c_ = 0;
-
-  // Get values for Gaussian smoothing kernel
-  update_smoothing_kernel();
 
   // Get valid configurations
   update_valid_conf();
@@ -1675,9 +1734,14 @@ void CellModel::correct_concentrations() {
 }
 
 void CellModel::diffuse_k0_adh() {
-  double s2C = 0.05;
-  double A0_3 = std::pow(A0_, 3);
-  double dx_2 = dx_ * dx_;
+  // precompute coefficients
+  const double inv_dx2 = 1.0 / (dx_ * dx_);
+  const double dda = DA_ * inv_dx2;
+  const double ddi = DI_ * inv_dx2;
+  const double dt_dda = dt_ * dda;
+  const double dt_ddi = dt_ * ddi;
+  const double s2C = 0.05;
+  const double A0_3 = A0_ * A0_ * A0_;
 
   // temporary variables for update
   Mat_d A_new(sim_rows_, sim_cols_);
@@ -1687,80 +1751,108 @@ void CellModel::diffuse_k0_adh() {
   Mat_d IC_new(sim_rows_, sim_cols_);
   Mat_d FC_new(sim_rows_, sim_cols_);
 
-  A_new = A_.eval();
-  I_new = I_.eval();
-  F_new = F_.eval();
-  AC_new = AC_.eval();
-  IC_new = IC_.eval();
-  FC_new = FC_.eval();
-
   for (int k = 0; k < diff_t_; k++) {
 #ifdef USE_OPENMP
-#pragma omp parallel for schedule(static) collapse(2)
+#pragma omp parallel for schedule(static)
 #endif
     for (int i = frame_row_start_; i <= frame_row_end_; i++) {
+      // get raw pointers for faster access
+      const double *rA = &A_(i, 0);
+      const double *rA_up = &A_(i - 1, 0);
+      const double *rA_down = &A_(i + 1, 0);
+
+      const double *rI = &I_(i, 0);
+      const double *rI_up = &I_(i - 1, 0);
+      const double *rI_down = &I_(i + 1, 0);
+
+      const double *rAC = &AC_(i, 0);
+      const double *rAC_up = &AC_(i - 1, 0);
+      const double *rAC_down = &AC_(i + 1, 0);
+
+      const double *rIC = &IC_(i, 0);
+      const double *rIC_up = &IC_(i - 1, 0);
+      const double *rIC_down = &IC_(i + 1, 0);
+
+      const double *rF = &F_(i, 0);
+      const double *rFC = &FC_(i, 0);
+      const double *rK0 = &k0_adh_(i, 0);
+
+      const int *rCell = &cell_(i, 0);
+      const int *rCell_up = &cell_(i - 1, 0);
+      const int *rCell_down = &cell_(i + 1, 0);
+
+      const int *rNuc = &nuc_(i, 0);
+      const int *rNuc_up = &nuc_(i - 1, 0);
+      const int *rNuc_down = &nuc_(i + 1, 0);
+
       for (int j = frame_col_start_; j <= frame_col_end_; j++) {
-        if (cell_(i, j) == 1) {
-          double A_3 = std::pow(A_(i, j), 3);
-          double f =
-              (k0_adh_(i, j) + gamma_ * A_3 / (A0_3 + A_3)) * I_(i, j) -
-              delta_ * (s1_ + s2_ * F_(i, j) / (F0_ + F_(i, j))) * A_(i, j);
-          double h = eps_ * (kn_ * A_(i, j) - ks_ * F_(i, j));
+        double cell_val = (double)rCell[j];
+        if (cell_val == 0.0)
+          continue; // skip empty space
 
-          A_new(i, j) =
-              A_(i, j) +
-              dt_ * (f +
-                     DA_ / dx_2 *
-                         (double)(cell_(i + 1, j) * (A_(i + 1, j) - A_(i, j)) -
-                                  cell_(i - 1, j) * (A_(i, j) - A_(i - 1, j)) +
-                                  cell_(i, j + 1) * (A_(i, j + 1) - A_(i, j)) -
-                                  cell_(i, j - 1) * (A_(i, j) - A_(i, j - 1))));
-          I_new(i, j) =
-              I_(i, j) +
-              dt_ * (-f +
-                     DI_ / dx_2 *
-                         (double)(cell_(i + 1, j) * (I_(i + 1, j) - I_(i, j)) -
-                                  cell_(i - 1, j) * (I_(i, j) - I_(i - 1, j)) +
-                                  cell_(i, j + 1) * (I_(i, j + 1) - I_(i, j)) -
-                                  cell_(i, j - 1) * (I_(i, j) - I_(i, j - 1))));
-          F_new(i, j) = F_(i, j) + h * dt_;
+        double nuc_val = (double)rNuc[j];
+        double cyto_val = cell_val - nuc_val; // 1.0 if cytosol, 0.0 if nucleus
 
-          if (nuc_(i, j) == 0) {
-            double AC_3 = std::pow(AC_(i, j), 3);
-            double fC = (k0_ + gamma_ * AC_3 / (A0_3 + AC_3)) * IC_(i, j) -
-                        delta_ * (s1_ + s2C * FC_(i, j) / (F0_ + FC_(i, j))) *
-                            AC_(i, j);
-            double hC = eps_ * (kn_ * AC_(i, j) - ks_ * FC_(i, j));
+        double a = rA[j];
+        double a3 = a * a * a;
+        double reaction_a = (rK0[j] + gamma_ * a3 / (A0_3 + a3)) * rI[j] -
+                            delta_ * (s1_ + s2_ * rF[j] / (F0_ + rF[j])) * a;
 
-            AC_new(i, j) =
-                AC_(i, j) +
-                dt_ * (fC + DA_ / dx_2 *
-                                (double)((cell_(i + 1, j) - nuc_(i + 1, j)) *
-                                             (AC_(i + 1, j) - AC_(i, j)) -
-                                         (cell_(i - 1, j) - nuc_(i - 1, j)) *
-                                             (AC_(i, j) - AC_(i - 1, j)) +
-                                         (cell_(i, j + 1) - nuc_(i, j + 1)) *
-                                             (AC_(i, j + 1) - AC_(i, j)) -
-                                         (cell_(i, j - 1) - nuc_(i, j - 1)) *
-                                             (AC_(i, j) - AC_(i, j - 1))));
-            IC_new(i, j) =
-                IC_(i, j) +
-                dt_ * (-fC + DI_ / dx_2 *
-                                 (double)((cell_(i + 1, j) - nuc_(i + 1, j)) *
-                                              (IC_(i + 1, j) - IC_(i, j)) -
-                                          (cell_(i - 1, j) - nuc_(i - 1, j)) *
-                                              (IC_(i, j) - IC_(i - 1, j)) +
-                                          (cell_(i, j + 1) - nuc_(i, j + 1)) *
-                                              (IC_(i, j + 1) - IC_(i, j)) -
-                                          (cell_(i, j - 1) - nuc_(i, j - 1)) *
-                                              (IC_(i, j) - IC_(i, j - 1))));
-            FC_new(i, j) = FC_(i, j) + hC * dt_;
-          }
+        // laplacian calculatiosn
+        double lapA = (double)rCell_down[j] * (rA_down[j] - a) +
+                      (double)rCell_up[j] * (rA_up[j] - a) +
+                      (double)rCell[j + 1] * (rA[j + 1] - a) +
+                      (double)rCell[j - 1] * (rA[j - 1] - a);
+
+        double lapI = (double)rCell_down[j] * (rI_down[j] - rI[j]) +
+                      (double)rCell_up[j] * (rI_up[j] - rI[j]) +
+                      (double)rCell[j + 1] * (rI[j + 1] - rI[j]) +
+                      (double)rCell[j - 1] * (rI[j - 1] - rI[j]);
+
+        A_new(i, j) = a + dt_ * reaction_a + dt_dda * lapA;
+        I_new(i, j) = rI[j] + dt_ * (-reaction_a) + dt_ddi * lapI;
+        F_new(i, j) = rF[j] + dt_ * (eps_ * (kn_ * a - ks_ * rF[j]));
+
+        if (cyto_val > 0.0) {
+          double ac = rAC[j];
+          double ac3 = ac * ac * ac;
+          double reaction_ac =
+              (k0_ + gamma_ * ac3 / (A0_3 + ac3)) * rIC[j] -
+              delta_ * (s1_ + s2C * rFC[j] / (F0_ + rFC[j])) * ac;
+
+          // helper function for nucleus laplacian
+          auto get_c_boundary = [&](int row_offset, int col_offset) {
+            if (row_offset == 1)
+              return (double)(rCell_down[j] - rNuc_down[j]);
+            if (row_offset == -1)
+              return (double)(rCell_up[j] - rNuc_up[j]);
+            if (col_offset == 1)
+              return (double)(rCell[j + 1] - rNuc[j + 1]);
+            return (double)(rCell[j - 1] - rNuc[j - 1]);
+          };
+
+          double lapAC = get_c_boundary(1, 0) * (rAC_down[j] - ac) +
+                         get_c_boundary(-1, 0) * (rAC_up[j] - ac) +
+                         get_c_boundary(0, 1) * (rAC[j + 1] - ac) +
+                         get_c_boundary(0, -1) * (rAC[j - 1] - ac);
+
+          double lapIC = get_c_boundary(1, 0) * (rIC_down[j] - rIC[j]) +
+                         get_c_boundary(-1, 0) * (rIC_up[j] - rIC[j]) +
+                         get_c_boundary(0, 1) * (rIC[j + 1] - rIC[j]) +
+                         get_c_boundary(0, -1) * (rIC[j - 1] - rIC[j]);
+
+          AC_new(i, j) = ac + dt_ * reaction_ac + dt_dda * lapAC;
+          IC_new(i, j) = rIC[j] + dt_ * (-reaction_ac) + dt_ddi * lapIC;
+          FC_new(i, j) = rFC[j] + dt_ * (eps_ * (kn_ * ac - ks_ * rFC[j]));
+        } else {
+          // keep old values
+          AC_new(i, j) = rAC[j];
+          IC_new(i, j) = rIC[j];
+          FC_new(i, j) = rFC[j];
         }
       }
     }
 
-    // replace elements
     std::swap(A_, A_new);
     std::swap(I_, I_new);
     std::swap(F_, F_new);
@@ -1778,16 +1870,16 @@ void CellModel::update_dyn_nuc_field() {
    *
    * The logic works by using BFS to create a map of which pixel each other
    * pixel is propagated from. This produces the best performance and although
-   * doesn't share signals between pixels equidistant to the nucleus, shouldn't
-   * matter because the signals will later be smoothed using a Gaussian kernel
-   * anyway (not done in this function because only a small subset of values
-   * require smoothing).
+   * doesn't share signals between pixels equidistant to the nucleus,
+   * shouldn't matter because the signals will later be smoothed using a
+   * Gaussian kernel anyway (not done in this function because only a small
+   * subset of values require smoothing).
    *
-   * Normalization is achieved using a sigmoid function to ensure values are in
-   * the range (0, 1) so that retraction probabilities can be 1 - protrusion
-   * probabilities. The sigmoid is centered at the average so that if all
-   * values are similar, it won't just result in all of the values being high
-   * (close to 1).
+   * Normalization is achieved using a sigmoid function to ensure values are
+   * in the range (0, 1) so that retraction probabilities can be 1 -
+   * protrusion probabilities. The sigmoid is centered at the average so that
+   * if all values are similar, it won't just result in all of the values
+   * being high (close to 1).
    */
 
   // helper constants
@@ -1798,72 +1890,78 @@ void CellModel::update_dyn_nuc_field() {
   std::vector<std::pair<int, int>> nuc_coords =
       randomize_nonzero(inner_outline_nuc_, rng);
 
-  // perform bfs and keep track of which pixel each pixel originated from,
-  std::deque<std::pair<int, int>> q(nuc_coords.begin(), nuc_coords.end());
-  std::unordered_map<std::pair<int, int>, std::pair<int, int>, pair_hash>
-      from; // which pixel each pixel came from
-  std::stack<std::pair<int, int>>
-      rev; // order to revisit pixels (from out to in)
-  while (!q.empty()) {
-    auto [r, c] = q.front();
-    q.pop_front();
-    rev.push({r, c});
+  Mat_i parent_idx = Mat_i::Constant(sim_rows_, sim_cols_, -1);
+
+  std::vector<std::pair<int, int>> traversal_order;
+  traversal_order.reserve(sim_rows_ * sim_cols_ / 4);
+
+  for (auto &p : nuc_coords) {
+    parent_idx(p.first, p.second) = -2; // Mark as seed
+    traversal_order.push_back(p);
+  }
+
+  Mat_i dist{sim_rows_, sim_cols_};
+  Mat_i scaling{sim_rows_, sim_cols_};
+
+  // clear previous signals
+  dyn_f_.setZero();
+
+  size_t head = 0;
+  while (head < traversal_order.size()) {
+    auto [r, c] = traversal_order[head++];
+    if (inner_outline_.coeff(r, c) == 1) {
+      dyn_f_(r, c) = AC_(r, c);
+      scaling(r, c) = 1;
+    }
     for (int i = 0; i < 4; i++) {
       int nr = r + DR[i];
       int nc = c + DC[i];
       std::pair<int, int> next(nr, nc);
       if (nr < frame_row_start_ || nr > frame_row_end_ ||
           nc < frame_col_start_ || nc > frame_col_end_ || cell_(nr, nc) == 0 ||
-          nuc_.coeffRef(nr, nc) == 1 || from.count(next) > 0)
+          nuc_.coeffRef(nr, nc) == 1)
         continue;
-      from[next] = {r, c};
-      q.push_back(next);
+      if (parent_idx(nr, nc) == -1) {
+        parent_idx(nr, nc) = r * sim_cols_ + c; // Store parent
+        traversal_order.push_back({nr, nc});
+      }
     }
   }
-
-  // clear previous signals
-  dyn_f_.setZero();
 
   // propagate signals towards nucleus
-  double dyn_f_sum = 0;
-  const int n_cell =
-      rev.size(); // number of pixels to propagate (for calculating avg)
-  while (!rev.empty()) {
-    std::pair<int, int> cur = rev.top();
-    rev.pop();
-    auto [r, c] = cur;
-    dyn_f_(r, c) += AC_(r, c); // add signal at that pixel
-    dyn_f_sum += dyn_f_(r, c);
-
-    // propagate to closer pixel
-    if (from.count(cur) > 0) {
-      auto [fr, fc] = from[cur];
-      dyn_f_(fr, fc) += dyn_f_(r, c);
+  for (auto it = traversal_order.rbegin(); it != traversal_order.rend(); ++it) {
+    int r = it->first, c = it->second;
+    int p_idx = parent_idx(r, c);
+    if (p_idx >= 0) {
+      int pr = p_idx / sim_cols_;
+      int pc = p_idx % sim_cols_;
+      dyn_f_(pr, pc) += dyn_f_(r, c);
+      scaling(pr, pc) += scaling(r, c);
     }
   }
 
-  if (n_cell == 0)
-    return;
+  // normalization
+  const int rows = nuc_max_r_ - nuc_min_r_ + 1;
+  const int cols = nuc_max_c_ - nuc_min_c_ + 1;
+  auto f_block = dyn_f_.block(nuc_min_r_, nuc_min_c_, rows, cols);
+  auto s_block = scaling.block(nuc_min_r_, nuc_min_c_, rows, cols);
 
-  // sigmoid normalization
-  const double dyn_f_avg = dyn_f_sum / n_cell;
-  // #pragma omp parallel for collapse(2)
-  for (int i = frame_row_start_; i <= frame_row_end_; i++) {
-    for (int j = frame_col_start_; j <= frame_col_end_; j++) {
-      if (dyn_f_(i, j) == 0)
-        continue;
-      const double diff = dyn_f_(i, j) - dyn_f_avg;
-      dyn_f_(i, j) = 1.0 / (1.0 + std::exp(-dyn_norm_k_ * diff));
-    }
-  }
+  f_block.array() =
+      (s_block.array() == 0)
+          .select(0.0, (f_block.array() / s_block.array().cast<double>()) *
+                           dyn_scale_);
+
+  // blur dyn_f
+  gaussian_blur(dyn_f_, nuc_min_r_, nuc_max_r_, nuc_min_c_, nuc_max_c_,
+                dyn_sigma_);
 }
 
 void CellModel::update_adhesion_field() {
   /**
-   * Update adhesion field logic. Works by computing normalization variables at
-   * each adhesion, then applying a weighted Gaussian over every pixel from the
-   * adhesions. Then inverts and normalizes adh_f, and used to calculate k0_adh
-   * with IDW.
+   * Update adhesion field logic. Works by computing normalization variables
+   * at each adhesion, then applying a weighted Gaussian over every pixel from
+   * the adhesions. Then inverts and normalizes adh_f, and used to calculate
+   * k0_adh with IDW.
    */
 
   // Precompute constants
@@ -1940,57 +2038,17 @@ void CellModel::update_adhesion_field() {
   }
 }
 
-const double CellModel::get_smoothed_dyn_f(const int r, const int c) {
-  const int diff = dyn_kernel_size_ / 2;
-  const int row_start = std::max(r - diff, 0);
-  const int row_n = std::min(dyn_kernel_size_, sim_rows_ - r);
-  const int col_start = std::max(c - diff, 0);
-  const int col_n = std::min(dyn_kernel_size_, sim_cols_ - c);
-
-  double smoothed = 0.0;
-  // #pragma omp parallel for collapse(2) reduction(+:smoothed)
-  for (int i = 0; i < row_n; i++) {
-    for (int j = 0; j < col_n; j++) {
-      smoothed += dyn_f_(row_start + i, col_start + j) * g_dyn_f_(i, j);
-    }
-  }
-
-  return smoothed;
-}
-
-void CellModel::update_smoothing_kernel() {
-  const double sigma2 = dyn_sigma_ * dyn_sigma_;
-  const int c = dyn_kernel_size_ / 2; // center of the kernel
-  g_dyn_f_ = Mat_d(dyn_kernel_size_, dyn_kernel_size_);
-  for (int i = 0; i < dyn_kernel_size_; i++) {
-    for (int j = 0; j < dyn_kernel_size_; j++) {
-      const double diff2 = (i - c) * (i - c) + (j - c) * (j - c);
-      g_dyn_f_(i, j) =
-          (1.0 / (2 * M_PI * sigma2)) * std::exp(-diff2 / (2 * sigma2));
-    }
-  }
-}
-
 const uint8_t CellModel::encode_8(Mat_i &mat, const int r, const int c) {
-  int rows = mat.rows();
-  int cols = mat.cols();
+  const int *ptr = &mat(r, c);
+  const int step = mat.outerStride();
 
-  // Helper lambda to safely get matrix value (returns 0 for out-of-bounds)
-  auto safe_get = [&](int row, int col) -> int {
-    if (row >= 0 && row < rows && col >= 0 && col < cols) {
-      return mat(row, col);
-    }
-    return 0;
-  };
-
-  return (safe_get(r - 1, c - 1) << 0) | // top-left
-         (safe_get(r - 1, c) << 1) |     // top
-         (safe_get(r - 1, c + 1) << 2) | // top-right
-         (safe_get(r, c + 1) << 3) |     // right
-         (safe_get(r + 1, c + 1) << 4) | // bottom-right
-         (safe_get(r + 1, c) << 5) |     // bottom
-         (safe_get(r + 1, c - 1) << 6) | // bottom-left
-         (safe_get(r, c - 1) << 7);      // left
+  // using offsets based on Eigen's memory layout
+  // r-1, c-1 is ptr - 1 - step
+  // r+1, c+1 is ptr + 1 + step
+  return (ptr[-1 - step] & 1) << 0 | (ptr[-1] & 1) << 1 |
+         (ptr[-1 + step] & 1) << 2 | (ptr[step] & 1) << 3 |
+         (ptr[1 + step] & 1) << 4 | (ptr[1] & 1) << 5 |
+         (ptr[1 - step] & 1) << 6 | (ptr[-step] & 1) << 7;
 }
 
 const bool CellModel::is_valid_config_prot(uint8_t conf) {
@@ -2049,14 +2107,14 @@ void CellModel::update_valid_conf() {
   // Create protrusion configurations
   for (int i = 0; i < (1 << 8); i++) {
     if (is_valid_config_prot(i)) {
-      protrude_conf_.insert(i);
+      protrude_conf_[i] = true;
     }
   }
 
   // Create retraction configurations
   for (int i = 0; i < (1 << 8); i++) {
     if (is_valid_config_retr(i)) {
-      retract_conf_.insert(i);
+      retract_conf_[i] = false;
     }
   }
 }
