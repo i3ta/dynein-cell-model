@@ -1744,12 +1744,12 @@ void CellModel::diffuse_k0_adh() {
   const double A0_3 = A0_ * A0_ * A0_;
 
   // temporary variables for update
-  Mat_d A_new(sim_rows_, sim_cols_);
-  Mat_d I_new(sim_rows_, sim_cols_);
-  Mat_d F_new(sim_rows_, sim_cols_);
-  Mat_d AC_new(sim_rows_, sim_cols_);
-  Mat_d IC_new(sim_rows_, sim_cols_);
-  Mat_d FC_new(sim_rows_, sim_cols_);
+  Mat_d A_new = A_.eval();
+  Mat_d I_new = I_.eval();
+  Mat_d F_new = F_.eval();
+  Mat_d AC_new = AC_.eval();
+  Mat_d IC_new = IC_.eval();
+  Mat_d FC_new = FC_.eval();
 
   for (int k = 0; k < diff_t_; k++) {
 #ifdef USE_OPENMP
@@ -1844,11 +1844,6 @@ void CellModel::diffuse_k0_adh() {
           AC_new(i, j) = ac + dt_ * reaction_ac + dt_dda * lapAC;
           IC_new(i, j) = rIC[j] + dt_ * (-reaction_ac) + dt_ddi * lapIC;
           FC_new(i, j) = rFC[j] + dt_ * (eps_ * (kn_ * ac - ks_ * rFC[j]));
-        } else {
-          // keep old values
-          AC_new(i, j) = rAC[j];
-          IC_new(i, j) = rIC[j];
-          FC_new(i, j) = rFC[j];
         }
       }
     }
