@@ -1734,120 +1734,92 @@ void CellModel::correct_concentrations() {
 }
 
 void CellModel::diffuse_k0_adh() {
-  // precompute coefficients
-  const double inv_dx2 = 1.0 / (dx_ * dx_);
-  const double dda = DA_ * inv_dx2;
-  const double ddi = DI_ * inv_dx2;
-  const double dt_dda = dt_ * dda;
-  const double dt_ddi = dt_ * ddi;
-  const double s2C = 0.05;
-  const double A0_3 = A0_ * A0_ * A0_;
+  double s2C = 0.05;
+  double A0_3 = std::pow(A0_, 3);
+  double dx_2 = dx_ * dx_;
 
   // temporary variables for update
-  Mat_d A_new = A_.eval();
-  Mat_d I_new = I_.eval();
-  Mat_d F_new = F_.eval();
-  Mat_d AC_new = AC_.eval();
-  Mat_d IC_new = IC_.eval();
-  Mat_d FC_new = FC_.eval();
+  Mat_d A_new(sim_rows_, sim_cols_);
+  Mat_d I_new(sim_rows_, sim_cols_);
+  Mat_d F_new(sim_rows_, sim_cols_);
+  Mat_d AC_new(sim_rows_, sim_cols_);
+  Mat_d IC_new(sim_rows_, sim_cols_);
+  Mat_d FC_new(sim_rows_, sim_cols_);
+
+  A_new = A_.eval();
+  I_new = I_.eval();
+  F_new = F_.eval();
+  AC_new = AC_.eval();
+  IC_new = IC_.eval();
+  FC_new = FC_.eval();
 
   for (int k = 0; k < diff_t_; k++) {
 #ifdef USE_OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) collapse(2)
 #endif
     for (int i = frame_row_start_; i <= frame_row_end_; i++) {
-      // get raw pointers for faster access
-      const double *rA = &A_(i, 0);
-      const double *rA_up = &A_(i - 1, 0);
-      const double *rA_down = &A_(i + 1, 0);
-
-      const double *rI = &I_(i, 0);
-      const double *rI_up = &I_(i - 1, 0);
-      const double *rI_down = &I_(i + 1, 0);
-
-      const double *rAC = &AC_(i, 0);
-      const double *rAC_up = &AC_(i - 1, 0);
-      const double *rAC_down = &AC_(i + 1, 0);
-
-      const double *rIC = &IC_(i, 0);
-      const double *rIC_up = &IC_(i - 1, 0);
-      const double *rIC_down = &IC_(i + 1, 0);
-
-      const double *rF = &F_(i, 0);
-      const double *rFC = &FC_(i, 0);
-      const double *rK0 = &k0_adh_(i, 0);
-
-      const int *rCell = &cell_(i, 0);
-      const int *rCell_up = &cell_(i - 1, 0);
-      const int *rCell_down = &cell_(i + 1, 0);
-
-      const int *rNuc = &nuc_(i, 0);
-      const int *rNuc_up = &nuc_(i - 1, 0);
-      const int *rNuc_down = &nuc_(i + 1, 0);
-
       for (int j = frame_col_start_; j <= frame_col_end_; j++) {
-        double cell_val = (double)rCell[j];
-        if (cell_val == 0.0)
-          continue; // skip empty space
+        if (cell_(i, j) == 1) {
+          double A_3 = std::pow(A_(i, j), 3);
+          double f =
+              (k0_adh_(i, j) + gamma_ * A_3 / (A0_3 + A_3)) * I_(i, j) -
+              delta_ * (s1_ + s2_ * F_(i, j) / (F0_ + F_(i, j))) * A_(i, j);
+          double h = eps_ * (kn_ * A_(i, j) - ks_ * F_(i, j));
 
-        double nuc_val = (double)rNuc[j];
-        double cyto_val = cell_val - nuc_val; // 1.0 if cytosol, 0.0 if nucleus
+          A_new(i, j) =
+              A_(i, j) +
+              dt_ * (f +
+                     DA_ / dx_2 *
+                         (double)(cell_(i + 1, j) * (A_(i + 1, j) - A_(i, j)) -
+                                  cell_(i - 1, j) * (A_(i, j) - A_(i - 1, j)) +
+                                  cell_(i, j + 1) * (A_(i, j + 1) - A_(i, j)) -
+                                  cell_(i, j - 1) * (A_(i, j) - A_(i, j - 1))));
+          I_new(i, j) =
+              I_(i, j) +
+              dt_ * (-f +
+                     DI_ / dx_2 *
+                         (double)(cell_(i + 1, j) * (I_(i + 1, j) - I_(i, j)) -
+                                  cell_(i - 1, j) * (I_(i, j) - I_(i - 1, j)) +
+                                  cell_(i, j + 1) * (I_(i, j + 1) - I_(i, j)) -
+                                  cell_(i, j - 1) * (I_(i, j) - I_(i, j - 1))));
+          F_new(i, j) = F_(i, j) + h * dt_;
 
-        double a = rA[j];
-        double a3 = a * a * a;
-        double reaction_a = (rK0[j] + gamma_ * a3 / (A0_3 + a3)) * rI[j] -
-                            delta_ * (s1_ + s2_ * rF[j] / (F0_ + rF[j])) * a;
+          if (nuc_(i, j) == 0) {
+            double AC_3 = std::pow(AC_(i, j), 3);
+            double fC = (k0_ + gamma_ * AC_3 / (A0_3 + AC_3)) * IC_(i, j) -
+                        delta_ * (s1_ + s2C * FC_(i, j) / (F0_ + FC_(i, j))) *
+                            AC_(i, j);
+            double hC = eps_ * (kn_ * AC_(i, j) - ks_ * FC_(i, j));
 
-        // laplacian calculatiosn
-        double lapA = (double)rCell_down[j] * (rA_down[j] - a) +
-                      (double)rCell_up[j] * (rA_up[j] - a) +
-                      (double)rCell[j + 1] * (rA[j + 1] - a) +
-                      (double)rCell[j - 1] * (rA[j - 1] - a);
-
-        double lapI = (double)rCell_down[j] * (rI_down[j] - rI[j]) +
-                      (double)rCell_up[j] * (rI_up[j] - rI[j]) +
-                      (double)rCell[j + 1] * (rI[j + 1] - rI[j]) +
-                      (double)rCell[j - 1] * (rI[j - 1] - rI[j]);
-
-        A_new(i, j) = a + dt_ * reaction_a + dt_dda * lapA;
-        I_new(i, j) = rI[j] + dt_ * (-reaction_a) + dt_ddi * lapI;
-        F_new(i, j) = rF[j] + dt_ * (eps_ * (kn_ * a - ks_ * rF[j]));
-
-        if (cyto_val > 0.0) {
-          double ac = rAC[j];
-          double ac3 = ac * ac * ac;
-          double reaction_ac =
-              (k0_ + gamma_ * ac3 / (A0_3 + ac3)) * rIC[j] -
-              delta_ * (s1_ + s2C * rFC[j] / (F0_ + rFC[j])) * ac;
-
-          // helper function for nucleus laplacian
-          auto get_c_boundary = [&](int row_offset, int col_offset) {
-            if (row_offset == 1)
-              return (double)(rCell_down[j] - rNuc_down[j]);
-            if (row_offset == -1)
-              return (double)(rCell_up[j] - rNuc_up[j]);
-            if (col_offset == 1)
-              return (double)(rCell[j + 1] - rNuc[j + 1]);
-            return (double)(rCell[j - 1] - rNuc[j - 1]);
-          };
-
-          double lapAC = get_c_boundary(1, 0) * (rAC_down[j] - ac) +
-                         get_c_boundary(-1, 0) * (rAC_up[j] - ac) +
-                         get_c_boundary(0, 1) * (rAC[j + 1] - ac) +
-                         get_c_boundary(0, -1) * (rAC[j - 1] - ac);
-
-          double lapIC = get_c_boundary(1, 0) * (rIC_down[j] - rIC[j]) +
-                         get_c_boundary(-1, 0) * (rIC_up[j] - rIC[j]) +
-                         get_c_boundary(0, 1) * (rIC[j + 1] - rIC[j]) +
-                         get_c_boundary(0, -1) * (rIC[j - 1] - rIC[j]);
-
-          AC_new(i, j) = ac + dt_ * reaction_ac + dt_dda * lapAC;
-          IC_new(i, j) = rIC[j] + dt_ * (-reaction_ac) + dt_ddi * lapIC;
-          FC_new(i, j) = rFC[j] + dt_ * (eps_ * (kn_ * ac - ks_ * rFC[j]));
+            AC_new(i, j) =
+                AC_(i, j) +
+                dt_ * (fC + DA_ / dx_2 *
+                                (double)((cell_(i + 1, j) - nuc_(i + 1, j)) *
+                                             (AC_(i + 1, j) - AC_(i, j)) -
+                                         (cell_(i - 1, j) - nuc_(i - 1, j)) *
+                                             (AC_(i, j) - AC_(i - 1, j)) +
+                                         (cell_(i, j + 1) - nuc_(i, j + 1)) *
+                                             (AC_(i, j + 1) - AC_(i, j)) -
+                                         (cell_(i, j - 1) - nuc_(i, j - 1)) *
+                                             (AC_(i, j) - AC_(i, j - 1))));
+            IC_new(i, j) =
+                IC_(i, j) +
+                dt_ * (-fC + DI_ / dx_2 *
+                                 (double)((cell_(i + 1, j) - nuc_(i + 1, j)) *
+                                              (IC_(i + 1, j) - IC_(i, j)) -
+                                          (cell_(i - 1, j) - nuc_(i - 1, j)) *
+                                              (IC_(i, j) - IC_(i - 1, j)) +
+                                          (cell_(i, j + 1) - nuc_(i, j + 1)) *
+                                              (IC_(i, j + 1) - IC_(i, j)) -
+                                          (cell_(i, j - 1) - nuc_(i, j - 1)) *
+                                              (IC_(i, j) - IC_(i, j - 1))));
+            FC_new(i, j) = FC_(i, j) + hC * dt_;
+          }
         }
       }
     }
 
+    // replace elements
     std::swap(A_, A_new);
     std::swap(I_, I_new);
     std::swap(F_, F_new);
