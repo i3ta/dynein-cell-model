@@ -609,7 +609,7 @@ void CellModel::step() {
 
 std::vector<double> CellModel::step_dep() {
   std::vector<double> times;
-  times.reserve(6);
+  times.reserve(7);
 
   TIME_AND_STORE(times, if (t_ % adh_t_ == 0) rearrange_adhesions(false));
   TIME_AND_STORE(times, if (t_ % fr_t_ == 0) update_frame());
@@ -628,7 +628,7 @@ std::vector<double> CellModel::step_dep() {
 
 std::vector<double> CellModel::step_timed() {
   std::vector<double> times;
-  times.reserve(6);
+  times.reserve(8);
 
   TIME_AND_STORE(times, if (t_ % adh_t_ == 0) rearrange_adhesions(false));
   TIME_AND_STORE(times, if (t_ % fr_t_ == 0) update_frame());
