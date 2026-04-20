@@ -101,9 +101,9 @@ int main(int argc, char *argv[]) {
   }
 
 #ifdef USE_OPENMP
-  const int max_threads = omp_get_max_threads();
-  Eigen::initParallel();
-  Eigen::setNbThreads(max_threads);
+  // const int max_threads = omp_get_max_threads();
+  // Eigen::initParallel();
+  // Eigen::setNbThreads(max_threads);
 #endif
 
   // create cell
