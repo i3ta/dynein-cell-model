@@ -8,10 +8,21 @@ find_package(CURL REQUIRED)
 target_link_libraries(dynein_cell_model PRIVATE CURL::libcurl)
 
 # -------- OpenMP (if available) --------
+# Apple Clang needs help finding Homebrew's libomp on Apple Silicon
+# if(APPLE AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+#     set(OpenMP_CXX_FLAGS "-Xpreprocessor -fopenmp")
+#     set(OpenMP_CXX_LIB_NAMES "omp")
+#     set(OpenMP_omp_LIBRARY "/opt/homebrew/opt/libomp/lib/libomp.dylib")
+#     set(OpenMP_omp_INCLUDE_DIR "/opt/homebrew/opt/libomp/include")
+# endif()
+
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
     target_link_libraries(dynein_cell_model PUBLIC OpenMP::OpenMP_CXX)
     target_compile_definitions(dynein_cell_model PUBLIC USE_OPENMP)
+    # if(APPLE AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+    #     target_include_directories(dynein_cell_model PUBLIC /opt/homebrew/opt/libomp/include)
+    # endif()
     message(STATUS "OpenMP found - parallelization enabled")
 else()
     message(STATUS "OpenMP not found - running in single-threaded mode")

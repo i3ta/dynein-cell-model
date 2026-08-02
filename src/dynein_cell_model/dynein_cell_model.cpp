@@ -1820,12 +1820,12 @@ void CellModel::diffuse_k0_adh() {
     }
 
     // replace elements
-    std::swap(A_, A_new);
-    std::swap(I_, I_new);
-    std::swap(F_, F_new);
-    std::swap(AC_, AC_new);
-    std::swap(IC_, IC_new);
-    std::swap(FC_, FC_new);
+    A_.swap(A_new);
+    I_.swap(I_new);
+    F_.swap(F_new);
+    AC_.swap(AC_new);
+    IC_.swap(IC_new);
+    FC_.swap(FC_new);
   }
 }
 
