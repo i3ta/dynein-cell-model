@@ -27,7 +27,7 @@
 #include <yaml-cpp/node/parse.h>
 #include <yaml-cpp/yaml.h>
 
-#include <dynein_cell_model/dynein_cell_model.hpp>
+#include <dynein_cell_model/dynein_cell_model.h>
 #include <metric_utils/metric_utils.hpp>
 #include <test_utils/test_utils.hpp>
 

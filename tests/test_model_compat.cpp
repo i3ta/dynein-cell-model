@@ -1,5 +1,5 @@
 #include <cell_nuc/cell_nuc.hpp>
-#include <dynein_cell_model/dynein_cell_model.hpp>
+#include <dynein_cell_model/dynein_cell_model.h>
 #include <gtest/gtest.h>
 #include <iostream>
 #include <test_utils/test_utils.hpp>

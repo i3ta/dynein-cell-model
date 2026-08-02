@@ -1,4 +1,4 @@
-#include <dynein_cell_model/dynein_cell_model.hpp>
+#include <dynein_cell_model/dynein_cell_model.h>
 #include <test_utils/test_utils.hpp>
 
 namespace test_utils {

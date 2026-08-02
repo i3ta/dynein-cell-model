@@ -7,7 +7,7 @@
 #include <vector>
 
 #include <cell_nuc/cell_nuc.hpp>
-#include <dynein_cell_model/dynein_cell_model.hpp>
+#include <dynein_cell_model/dynein_cell_model.h>
 
 namespace test_utils {
 namespace dcm = dynein_cell_model;

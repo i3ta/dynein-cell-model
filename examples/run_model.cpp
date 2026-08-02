@@ -8,7 +8,7 @@
 #include <nlohmann/json.hpp>
 #include <opencv2/core/matx.hpp>
 
-#include <dynein_cell_model/dynein_cell_model.hpp>
+#include <dynein_cell_model/dynein_cell_model.h>
 #include <metric_utils/metric_utils.hpp>
 #include <tqdm.hpp>
 
