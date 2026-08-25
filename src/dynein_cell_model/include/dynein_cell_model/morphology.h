@@ -98,69 +98,45 @@ constexpr AdjSet encodeAdj(const AdjArr &grid) {
   return conf;
 }
 
-constexpr AdjArr decodeAdj(const AdjSet conf) {
-  AdjArr grid{};
-  for (int bit = 0; bit < 8; ++bit) {
-    const auto [dr, dc] = adjOffsets[bit];
-    grid[1 + dr][1 + dc] = (conf & (1 << bit)) != 0;
-  }
-  return grid;
+constexpr bool hasBit(const AdjSet conf, int bit) {
+  return (conf & (1u << bit)) != 0;
 }
 
-constexpr bool connected(const AdjArr &grid, bool val) {
-  constexpr int kDR[4] = {-1, 0, 1, 0};
-  constexpr int kDC[4] = {0, -1, 0, 1};
-  constexpr auto inBounds = [](int r, int c) {
-    return r >= 0 && r < 3 && c >= 0 && c < 3;
-  };
-
-  int total = 0, sr = -1, sc = -1;
-  for (int r = 0; r < 3; ++r) {
-    for (int c = 0; c < 3; ++c) {
-      if (grid[r][c] == val) {
-        ++total;
-        if (sr < 0) {
-          sr = r;
-          sc = c;
-        }
-      }
-    }
-  }
-  if (total == 0) {
-    return true;
-  }
-
-  std::array<std::pair<int, int>, 9> stack;
-  int top = 0;
-  stack[top++] = {sr, sc};
-  AdjArr visitedGrid{};
-  int visited = 0;
-  while (top > 0) {
-    const auto [r, c] = stack[--top];
-    if (visitedGrid[r][c])
-      continue;
-    visitedGrid[r][c] = true;
-    ++visited;
-    for (int i = 0; i < 4; ++i) {
-      const int nr = r + kDR[i], nc = c + kDC[i];
-      if (inBounds(nr, nc) && grid[nr][nc] == val && !visitedGrid[nr][nc]) {
-        stack[top++] = {nr, nc};
-      }
-    }
-  }
-  return visited == total;
+// Preserve the pre-refactor local topology rules.  These reject unsupported
+// diagonal connections and four-neighbor pinches, but do not impose the newer
+// requirement that both values in the full 3x3 neighborhood are connected.
+constexpr bool isValidProtrudeConfig(const AdjSet conf) {
+  const bool unsupportedDiagonal =
+      (hasBit(conf, 0) && !hasBit(conf, 1) && !hasBit(conf, 7)) ||
+      (hasBit(conf, 2) && !hasBit(conf, 1) && !hasBit(conf, 3)) ||
+      (hasBit(conf, 4) && !hasBit(conf, 3) && !hasBit(conf, 5)) ||
+      (hasBit(conf, 6) && !hasBit(conf, 5) && !hasBit(conf, 7));
+  const bool pinch =
+      (hasBit(conf, 1) && hasBit(conf, 5) && !hasBit(conf, 3) &&
+       !hasBit(conf, 7)) ||
+      (hasBit(conf, 3) && hasBit(conf, 7) && !hasBit(conf, 1) &&
+       !hasBit(conf, 5));
+  return !unsupportedDiagonal && !pinch;
 }
 
-constexpr bool isValidTransition(const uint8_t conf, bool centerAfter) {
-  AdjArr grid = decodeAdj(conf);
-  grid[1][1] = centerAfter;
-  return connected(grid, false) && connected(grid, true);
+constexpr bool isValidRetractConfig(const AdjSet conf) {
+  const bool unsupportedDiagonalGap =
+      (!hasBit(conf, 0) && hasBit(conf, 1) && hasBit(conf, 7)) ||
+      (!hasBit(conf, 2) && hasBit(conf, 1) && hasBit(conf, 3)) ||
+      (!hasBit(conf, 4) && hasBit(conf, 3) && hasBit(conf, 5)) ||
+      (!hasBit(conf, 6) && hasBit(conf, 5) && hasBit(conf, 7));
+  const bool pinch =
+      (hasBit(conf, 1) && hasBit(conf, 5) && !hasBit(conf, 3) &&
+       !hasBit(conf, 7)) ||
+      (hasBit(conf, 3) && hasBit(conf, 7) && !hasBit(conf, 1) &&
+       !hasBit(conf, 5));
+  return !unsupportedDiagonalGap && !pinch;
 }
 
 constexpr std::bitset<256> generateProtrudeConf() {
   std::bitset<256> confs;
   for (int i = 0; i < 256; ++i) {
-    confs[i] = isValidTransition(static_cast<uint8_t>(i), /*centerAfter=*/true);
+    confs[i] = isValidProtrudeConfig(static_cast<uint8_t>(i));
   }
   return confs;
 }
@@ -168,8 +144,7 @@ constexpr std::bitset<256> generateProtrudeConf() {
 constexpr std::bitset<256> generateRetractConf() {
   std::bitset<256> confs;
   for (int i = 0; i < 256; ++i) {
-    confs[i] =
-        isValidTransition(static_cast<uint8_t>(i), /*centerAfter=*/false);
+    confs[i] = isValidRetractConfig(static_cast<uint8_t>(i));
   }
   return confs;
 }
