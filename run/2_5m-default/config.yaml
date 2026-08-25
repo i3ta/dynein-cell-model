@@ -12,7 +12,7 @@ R0: 20
 R_nuc: 1
 dyn_basal: 0.9
 prop_factor: 1
-dyn_norm_k: 1.0 # Not tested
+dyn_scale: 1.0 # Not tested
 dyn_sigma: 1.0 # Not tested
 dyn_kernel_size: 5 # Not tested
 DA: 0.0003333333
