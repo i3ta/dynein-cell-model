@@ -4,6 +4,7 @@
 #include <random>
 
 #include "dynein_cell_model/config.h"
+#include "dynein_cell_model/mask.h"
 #include "dynein_cell_model/types.h"
 
 namespace dynein_cell_model {
@@ -55,10 +56,10 @@ struct CellState {
 
   ViewI cell;               ///< cell mask
   ViewI nuc;                ///< nucleus mask
-  ViewMask outline;         ///< cell outline
-  ViewMask innerOutline;    ///< cell outline inner pixel
-  ViewMask outlineNuc;      ///< nucleus outline
-  ViewMask innerOutlineNuc; ///< nucleus outline inner pixel
+  OutlineMask outline;         ///< cell outline
+  OutlineMask innerOutline;    ///< cell outline inner pixel
+  OutlineMask outlineNuc;      ///< nucleus outline
+  OutlineMask innerOutlineNuc; ///< nucleus outline inner pixel
   ViewMask
       env; ///< environment the cell is in defining pixels the cell can sense
   ViewMask adh; ///< cell adhesions

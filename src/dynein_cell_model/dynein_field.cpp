@@ -29,14 +29,14 @@ void updateDynNucField(CellState &state) {
   ViewI parent = ViewI::Constant(config.simRows, config.simCols, -1);
   ViewI scaling = ViewI::Zero(config.simRows, config.simCols);
   std::vector<std::pair<int, int>> order;
-  for (int k = 0; k < state.innerOutlineNuc.outerSize(); ++k)
-    for (ViewMask::InnerIterator it(state.innerOutlineNuc, k); it; ++it) {
-      parent(it.row(), it.col()) = -2; order.push_back({it.row(), it.col()});
-    }
+  for (const auto &[row, col] : state.innerOutlineNuc) {
+    parent(row, col) = -2;
+    order.push_back({row, col});
+  }
   const int dr[] = {1, -1, 0, 0}, dc[] = {0, 0, 1, -1};
   for (size_t head = 0; head < order.size(); ++head) {
     const auto [r, c] = order[head];
-    if (state.innerOutline.coeff(r, c)) { state.dynF(r, c) = state.AC(r, c); scaling(r, c) = 1; }
+    if (state.innerOutline.contains(r, c)) { state.dynF(r, c) = state.AC(r, c); scaling(r, c) = 1; }
     for (int n = 0; n < 4; ++n) {
       const int nr = r + dr[n], nc = c + dc[n];
       if (nr < state.frameRowStart || nr > state.frameRowEnd || nc < state.frameColStart || nc > state.frameColEnd ||

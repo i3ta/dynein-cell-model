@@ -50,42 +50,21 @@ std::vector<int> generateIndices(const int n, const int lb, const int ub,
   return std::vector<int>(arr.begin(), arr.begin() + n);
 }
 
-std::vector<std::pair<int, int>> getNonzero(const ViewMask &mat) {
-  std::vector<std::pair<int, int>> coords;
-  for (int k = 0; k < mat.outerSize(); k++)
-    for (ViewMask::InnerIterator it(mat, k); it; ++it)
-      coords.push_back({it.row(), it.col()});
-  return coords;
+std::vector<OutlineMask::Coord> stableCoords(const OutlineMask &outline) {
+  return {outline.begin(), outline.end()};
 }
 
-/**
- * @brief Generate a random visit order for all of the nonzero pixels in the
- * ViewMask.
- *
- * @param mat ViewMask to randomize pixels of
- * @param rng std::mt19937 random number generator to use
- *
- * @return Vector of randomized order
- */
-const std::vector<std::pair<int, int>> randomizeNonzero(const ViewMask &mat,
-                                                        std::mt19937 &rng) {
-  auto coords = getNonzero(mat);
-  std::shuffle(coords.begin(), coords.end(), rng);
-  return coords;
-}
-
-int outline4(const ViewMask &outline, const ViewI &body, int simRows,
+int outline4(const OutlineMask &outline, const ViewI &body, int simRows,
              int sim_cols) {
   const int DR[4] = {-1, 0, 1, 0};
   const int DC[4] = {0, -1, 0, 1};
 
   int perim = 0;
 
-  for (int k = 0; k < outline.outerSize(); ++k) {
-    for (ViewMask::InnerIterator it(outline, k); it; ++it) {
+  for (const auto &[row, col] : outline) {
       for (int i = 0; i < 4; i++) {
-        const int nr = it.row() + DR[i];
-        const int nc = it.col() + DC[i];
+        const int nr = row + DR[i];
+        const int nc = col + DC[i];
         if (nr < 0 || nr >= simRows || nc < 0 || nc >= sim_cols)
           continue;
         if (body(nr, nc) == 1) {
@@ -93,7 +72,6 @@ int outline4(const ViewMask &outline, const ViewI &body, int simRows,
           break;
         }
       }
-    }
   }
 
   return perim;
@@ -109,8 +87,8 @@ void updateCell(CellState &state, const bool full = false) {
   const int DC[8] = {0, 0, -1, 1, -1, 1, -1, 1};
 
   // Clear outlines
-  state.outline.setZero();
-  state.innerOutline.setZero();
+  state.outline.clear();
+  state.innerOutline.clear();
 
   // Set bounds
   int rowStart = full ? 0 : state.frameRowStart;
@@ -145,13 +123,16 @@ void updateCell(CellState &state, const bool full = false) {
     // #pragma omp critical
     {
       for (auto &[r, c] : localInner) {
-        state.innerOutline.coeffRef(r, c) = 1;
+        state.innerOutline.set(r, c);
       }
       for (auto &[r, c] : localOuter) {
-        state.outline.coeffRef(r, c) = 1;
+        state.outline.set(r, c);
       }
     }
   }
+
+  state.innerOutline.rebuildCoordinatesColumnMajor();
+  state.outline.rebuildCoordinatesColumnMajor();
 
   // update cell volume and perimeter
   state.V = (state.cell.array() != 0).count();
@@ -171,8 +152,8 @@ void updateNuc(CellState &state, const bool recheckBounds = false) {
   const int DC[8] = {0, 0, -1, 1, -1, 1, -1, 1};
 
   // Clear outlines
-  state.outlineNuc.setZero();
-  state.innerOutlineNuc.setZero();
+  state.outlineNuc.clear();
+  state.innerOutlineNuc.clear();
   state.VNuc = 0;
 
   // Initialize bounds on first call (when bounds are invalid)
@@ -247,13 +228,16 @@ void updateNuc(CellState &state, const bool recheckBounds = false) {
     // #pragma omp critical
     {
       for (auto &[r, c] : localInner) {
-        state.innerOutlineNuc.coeffRef(r, c) = 1;
+        state.innerOutlineNuc.set(r, c);
       }
       for (auto &[r, c] : localOuter) {
-        state.outlineNuc.coeffRef(r, c) = 1;
+        state.outlineNuc.set(r, c);
       }
     }
   }
+
+  state.innerOutlineNuc.rebuildCoordinatesColumnMajor();
+  state.outlineNuc.rebuildCoordinatesColumnMajor();
 
   // update nucleus volume and perimeter
   state.PNuc =
@@ -308,9 +292,9 @@ void protrudeCell(CellState &state) {
   std::vector<std::pair<int, int>> protrudeCoords;
   if constexpr (DYNEIN_CELL_MODEL_DEBUG_CPP) {
     // NOTE: If debug, use non-random column-major order
-    protrudeCoords = getNonzero(state.outline);
+    protrudeCoords = stableCoords(state.outline);
   } else {
-    protrudeCoords = randomizeNonzero(state.outline, state.rng);
+    protrudeCoords = state.outline.shuffled(state.rng);
   }
 
   // protrude
@@ -322,7 +306,7 @@ void protrudeCell(CellState &state) {
       continue;
 
     double w;
-    if (state.outlineNuc.coeff(r, c) == 1) {
+    if (state.outlineNuc.contains(r, c)) {
       w = 1.0; // force push if nucleus is against edge of cell
     } else {
       double n = nDiag * (state.cell(r - 1, c - 1) + state.cell(r + 1, c - 1) +
@@ -401,9 +385,9 @@ void retractCell(CellState &state) {
   std::vector<std::pair<int, int>> retractCoords;
 
   if constexpr (DYNEIN_CELL_MODEL_DEBUG_CPP) {
-    retractCoords = getNonzero(state.innerOutline);
+    retractCoords = stableCoords(state.innerOutline);
   } else {
-    retractCoords = randomizeNonzero(state.innerOutline, state.rng);
+    retractCoords = state.innerOutline.shuffled(state.rng);
   }
 
   // retract
@@ -498,11 +482,11 @@ void protrudeNuc(CellState &state) {
 
   // protrude logic
   std::vector<std::pair<int, int>> protrudeCoords =
-      randomizeNonzero(state.outlineNuc, state.rng);
+      state.outlineNuc.shuffled(state.rng);
 
   for (auto &[r, c] : protrudeCoords) {
     uint8_t conf = encodeAdj(state.nuc, r, c);
-    if (state.outline.coeff(r, c) == 1 || !protrudeConf[conf])
+    if (state.outline.contains(r, c) || !protrudeConf[conf])
       continue;
 
     // lookup pre-calculated 'n'
@@ -576,7 +560,7 @@ void retractNuc(CellState &state) {
 
   // retract logic
   std::vector<std::pair<int, int>> retractCoords =
-      randomizeNonzero(state.innerOutlineNuc, state.rng);
+      state.innerOutlineNuc.shuffled(state.rng);
 
   for (auto &[r, c] : retractCoords) {
     uint8_t conf = encodeAdj(state.nuc, r, c);
@@ -630,9 +614,9 @@ void protrudeNucDep(CellState &state) {
 
   if constexpr (DYNEIN_CELL_MODEL_DEBUG_CPP) {
     // NOTE: If debug, use non-random column-major order
-    protrudeCoords = getNonzero(state.outlineNuc);
+    protrudeCoords = stableCoords(state.outlineNuc);
   } else {
-    protrudeCoords = randomizeNonzero(state.outlineNuc, state.rng);
+    protrudeCoords = state.outlineNuc.shuffled(state.rng);
   }
 
   // generate dynein field for protrusion probability
@@ -642,7 +626,7 @@ void protrudeNucDep(CellState &state) {
   for (int i = 0; i < protrudeCoords.size(); i++) {
     auto [r, c] = protrudeCoords[i];
 
-    if (state.outline.coeff(r, c) == 1 ||
+    if (state.outline.contains(r, c) ||
         !protrudeConf[encodeAdj(state.nuc, r, c)]) // Check if protrusion would
                                                    // be valid
       continue;
@@ -704,9 +688,9 @@ void retractNucDep(CellState &state) {
 
   if constexpr (DYNEIN_CELL_MODEL_DEBUG_CPP) {
     // NOTE: If debug, use non-random column-major order
-    retractCoords = getNonzero(state.innerOutlineNuc);
+    retractCoords = stableCoords(state.innerOutlineNuc);
   } else {
-    retractCoords = randomizeNonzero(state.innerOutlineNuc, state.rng);
+    retractCoords = state.innerOutlineNuc.shuffled(state.rng);
   }
 
   // generate dynein field for retraction probability
@@ -856,41 +840,33 @@ void rearrangeAdhesions(CellState &state, const bool bias,
   updateAdhesionField(state);
 }
 
-void generateDynField(CellState &state, const ViewMask &cellOutline,
-                      const ViewMask &nucOutline, const bool retract) {
+void generateDynField(CellState &state, const OutlineMask &cellOutline,
+                      const OutlineMask &nucOutline, const bool retract) {
   auto &config = state.config;
   state.dynF.setZero();
-  ViewMask scaling(config.simRows, config.simCols);
+  ViewI scaling = ViewI::Zero(config.simRows, config.simCols);
 
-  const int len = nucOutline.nonZeros();
+  const int len = static_cast<int>(nucOutline.size());
   int n = len / (retract ? 6 : 30);
 
   // Pre-compute nuc outline coordinates for faster iteration
   std::vector<std::pair<int, int>> nucCoords;
-  nucCoords.reserve(nucOutline.nonZeros());
-  for (int j = 0; j < nucOutline.outerSize(); j++) {
-    for (ViewMask::InnerIterator itNuc(nucOutline, j); itNuc; ++itNuc) {
-      nucCoords.push_back({itNuc.row(), itNuc.col()});
-    }
-  }
+  nucCoords.reserve(nucOutline.size());
+  for (const auto &coord : nucOutline) nucCoords.push_back(coord);
 
 #ifdef USE_OPENMP
   // Collect cell outline coordinates for parallelization
   std::vector<std::pair<int, int>> cellCoords;
-  cellCoords.reserve(cellOutline.nonZeros());
-  for (int k = 0; k < cellOutline.outerSize(); k++) {
-    for (ViewMask::InnerIterator it(cellOutline, k); it; ++it) {
-      cellCoords.push_back({it.row(), it.col()});
-    }
-  }
+  cellCoords.reserve(cellOutline.size());
+  for (const auto &coord : cellOutline) cellCoords.push_back(coord);
 
   // Thread-local accumulators for dynF and scaling
   const int numThreads = omp_get_max_threads();
   std::vector<ViewD> dynFLocal(numThreads,
                                ViewD::Zero(config.simRows, config.simCols));
-  std::vector<ViewMask> scalingLocal(numThreads);
+  std::vector<ViewI> scalingLocal(numThreads);
   for (int t = 0; t < numThreads; t++) {
-    scalingLocal[t] = ViewMask(config.simRows, config.simCols);
+    scalingLocal[t] = ViewI::Zero(config.simRows, config.simCols);
   }
 
 // Parallel loop over cell outline pixels
@@ -930,9 +906,9 @@ void generateDynField(CellState &state, const ViewMask &cellOutline,
 
       for (int i = rStart; i <= rEnd; ++i) {
         for (int j = cStart; j <= cEnd; ++j) {
-          if (nucOutline.coeff(i, j) == 1) {
+          if (nucOutline.contains(i, j)) {
             dynFLocal[threadId](i, j) += distF;
-            scalingLocal[threadId].coeffRef(i, j) += 1;
+            scalingLocal[threadId](i, j) += 1;
           }
         }
       }
@@ -947,10 +923,7 @@ void generateDynField(CellState &state, const ViewMask &cellOutline,
 
 #else
   // Single-threaded version
-  for (int k = 0; k < cellOutline.outerSize(); k++) {
-    for (ViewMask::InnerIterator it(cellOutline, k); it; ++it) {
-      const int r = it.row();
-      const int c = it.col();
+  for (const auto &[r, c] : cellOutline) {
 
       // Early exit if AC is too low
       const double acVal = state.AC(r, c);
@@ -979,29 +952,25 @@ void generateDynField(CellState &state, const ViewMask &cellOutline,
 
       for (int i = rStart; i <= rEnd; ++i) {
         for (int j = cStart; j <= cEnd; ++j) {
-          if (nucOutline.coeff(i, j) == 1) {
+          if (nucOutline.contains(i, j)) {
             state.dynF(i, j) += distF;
-            scaling.coeffRef(i, j) += 1;
+            scaling(i, j) += 1;
           }
         }
       }
-    }
   }
 #endif
 
   // normalize elements
-  for (int k = 0; k < scaling.outerSize(); k++) {
-    for (ViewMask::InnerIterator it(scaling, k); it; ++it) {
-      int r = it.row();
-      int c = it.col();
+  for (const auto &[r, c] : nucOutline) {
+      if (scaling(r, c) == 0) continue;
       if (!retract) {
         state.dynF(r, c) =
-            std::min(state.dynF(r, c) / scaling.coeff(r, c) / 60, 1.0);
+            std::min(state.dynF(r, c) / scaling(r, c) / 60, 1.0);
       } else {
         state.dynF(r, c) =
-            std::max(1 - state.dynF(r, c) / scaling.coeff(r, c) / 60, 0.0);
+            std::max(1 - state.dynF(r, c) / scaling(r, c) / 60, 0.0);
       }
-    }
   }
 }
 
@@ -1014,11 +983,7 @@ void updateFrame(CellState &state) {
 
   // only need to check inner outline of cell because those are the cell
   // boundaries
-  for (int k = 0; k < state.innerOutline.outerSize(); ++k) {
-    for (Eigen::SparseMatrix<int>::InnerIterator it(state.innerOutline, k); it;
-         ++it) {
-      int i = it.row();
-      int j = it.col();
+  for (const auto &[i, j] : state.innerOutline) {
 
       // Update bounding box
       if (state.cell(i, j) != 0) {
@@ -1027,7 +992,6 @@ void updateFrame(CellState &state) {
         minCol = std::min(minCol, j);
         maxCol = std::max(maxCol, j);
       }
-    }
   }
 
   if (minRow == std::numeric_limits<int>::max()) {

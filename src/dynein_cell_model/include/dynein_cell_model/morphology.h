@@ -63,8 +63,8 @@ void rearrangeAdhesions(CellState &state, const bool bias = false,
  * @brief Generate the dynein field using old logic.
  */
 [[deprecated]]
-void generateDynField(CellState &state, const ViewMask &cellOutline,
-                      const ViewMask &nucOutline, const bool retract);
+void generateDynField(CellState &state, const OutlineMask &cellOutline,
+                      const OutlineMask &nucOutline, const bool retract);
 
 /**
  * @brief Update the cell processing boundaries to be where the cell is.

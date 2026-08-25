@@ -95,11 +95,11 @@ protected:
     sync_params(*legacy, *config);
     legacy->Im_nuc = eigen_to_raw(nucMask.cast<double>());
     legacy->Im = eigen_to_raw(cellMask.cast<double>());
-    legacy->outline = eigen_to_raw(modern->outline.cast<double>());
-    legacy->inner_outline = eigen_to_raw(modern->innerOutline.cast<double>());
-    legacy->outline_nuc = eigen_to_raw(modern->outlineNuc.cast<double>());
+    legacy->outline = eigen_to_raw(modern->outline.mask().cast<double>());
+    legacy->inner_outline = eigen_to_raw(modern->innerOutline.mask().cast<double>());
+    legacy->outline_nuc = eigen_to_raw(modern->outlineNuc.mask().cast<double>());
     legacy->inner_outline_nuc =
-        eigen_to_raw(modern->innerOutlineNuc.cast<double>());
+        eigen_to_raw(modern->innerOutlineNuc.mask().cast<double>());
     legacy->k0_adh = eigen_to_raw(modern->k0Adh);
     legacy->A = eigen_to_raw(modern->A);
     legacy->I = eigen_to_raw(modern->I);
@@ -307,13 +307,13 @@ protected:
         << " masks do not match. Fix this before checking outlines.";
   }
 
-  void test_outline(double **legacy, const dcm::SpMat_i &modern,
+  void test_outline(double **legacy, const dcm::OutlineMask &modern,
                     const std::string &test_name) {
     int outline_mismatches = 0;
     for (int i = 0; i < rows; ++i) {
       for (int j = 0; j < cols; ++j) {
         int leg_val = static_cast<int>(legacy[i][j]);
-        int mod_val = static_cast<int>(modern.coeff(i, j));
+        int mod_val = static_cast<int>(modern.contains(i, j));
         if (leg_val != mod_val) {
           if (outline_mismatches < 10) {
             std::cout << test_name << " Mismatch at (" << i << "," << j

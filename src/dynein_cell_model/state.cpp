@@ -43,10 +43,10 @@ CellState::CellState(const CellModelConfig &conf)
 
   const int rows = config.simRows;
   const int cols = config.simCols;
-  outline = ViewMask(rows, cols);
-  innerOutline = ViewMask(rows, cols);
-  outlineNuc = ViewMask(rows, cols);
-  innerOutlineNuc = ViewMask(rows, cols);
+  outline = OutlineMask(rows, cols);
+  innerOutline = OutlineMask(rows, cols);
+  outlineNuc = OutlineMask(rows, cols);
+  innerOutlineNuc = OutlineMask(rows, cols);
   env = ViewMask(rows, cols);
   adh = ViewMask(rows, cols);
   adhPos = ViewI::Zero(2, config.adhNum);
