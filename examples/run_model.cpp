@@ -28,43 +28,43 @@ int main(int argc, char *argv[]) {
   std::cout << "Starting setup..." << std::endl;
 
   // file paths
-  std::filesystem::path config_file = root / "config.yaml";
-  std::filesystem::path cell_file = root / "cell.png";
-  std::filesystem::path env_file = root / "env.png";
-  std::filesystem::path A_file = root / "A.png";
-  std::filesystem::path AC_file = root / "AC.png";
-  std::filesystem::path I_file = root / "I.png";
-  std::filesystem::path IC_file = root / "IC.png";
+  std::filesystem::path configFile = root / "config.yaml";
+  std::filesystem::path cellFile = root / "cell.png";
+  std::filesystem::path envFile = root / "env.png";
+  std::filesystem::path aFile = root / "A.png";
+  std::filesystem::path acFile = root / "AC.png";
+  std::filesystem::path iFile = root / "I.png";
+  std::filesystem::path icFile = root / "IC.png";
   std::filesystem::path results = root / "results.h5";
 
   // read files
-  dcm::CellModelConfig config(config_file.string());
+  dcm::CellModelConfig config(configFile.string());
 
   // parse masks
   dcm::Mat_i nucleus_mask =
-      dcm::matrixFromMask(cell_file.string(), cv::Vec3b(127, 127, 127));
+      dcm::matrixFromMask(cellFile.string(), cv::Vec3b(127, 127, 127));
   dcm::Mat_i cell_mask =
-      dcm::matrixFromMask(cell_file.string(), cv::Vec3b(255, 255, 255)) +
+      dcm::matrixFromMask(cellFile.string(), cv::Vec3b(255, 255, 255)) +
       nucleus_mask;
   dcm::Mat_i env_mask =
-      dcm::matrixFromMask(env_file.string(), cv::Vec3b(255, 255, 255));
+      dcm::matrixFromMask(envFile.string(), cv::Vec3b(255, 255, 255));
   dcm::Mat_i A_init =
-      dcm::matrixFromMask(A_file.string(), cv::Vec3b(255, 255, 255));
+      dcm::matrixFromMask(aFile.string(), cv::Vec3b(255, 255, 255));
   dcm::Mat_i AC_init =
-      dcm::matrixFromMask(AC_file.string(), cv::Vec3b(255, 255, 255));
+      dcm::matrixFromMask(acFile.string(), cv::Vec3b(255, 255, 255));
   dcm::Mat_i I_init =
-      dcm::matrixFromMask(I_file.string(), cv::Vec3b(255, 255, 255));
+      dcm::matrixFromMask(iFile.string(), cv::Vec3b(255, 255, 255));
   dcm::Mat_i IC_init =
-      dcm::matrixFromMask(IC_file.string(), cv::Vec3b(255, 255, 255));
+      dcm::matrixFromMask(icFile.string(), cv::Vec3b(255, 255, 255));
 
-  dcm::CellState cell = dcm::initializeState(config, cell_mask, nucleus_mask,
-                                             env_mask.sparseView());
-  cell.A = A_init.cast<double>();
-  cell.AC = AC_init.cast<double>();
-  cell.I = I_init.cast<double>();
-  cell.IC = IC_init.cast<double>();
-  dcm::setOutput(cell, results.string());
-  dcm::initializeAdhesions(cell);
+  dcm::CellState state = dcm::initializeState(config, cell_mask, nucleus_mask,
+                                              env_mask.sparseView());
+  state.A = A_init.cast<double>();
+  state.AC = AC_init.cast<double>();
+  state.I = I_init.cast<double>();
+  state.IC = IC_init.cast<double>();
+  dcm::setOutput(state, results.string());
+  dcm::initializeAdhesions(state);
 
   std::cout << "Setup done. (" << timer.elapsed().count() << " ms)"
             << std::endl;
@@ -75,7 +75,7 @@ int main(int argc, char *argv[]) {
   auto A = tq::trange(config.numIters);
   for (int i : A) {
     timer.reset();
-    dcm::step(cell);
+    dcm::step(state);
     iter_times.push_back(timer.elapsed().count());
 
     Eigen::Map<dcm::Arr_d> iter_arr(iter_times.data(), iter_times.size());
