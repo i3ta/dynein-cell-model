@@ -1,18 +1,5 @@
 file(GLOB TEST_SOURCES "*.cpp")
 
-# -------- nlohmann_json (FetchContent) --------
-find_package(nlohmann_json QUIET)
-if(NOT nlohmann_json_FOUND)
-    message(STATUS "nlohmann_json not found, fetching with FetchContent")
-    include(FetchContent)
-    FetchContent_Declare(
-        nlohmann_json
-        GIT_REPOSITORY https://github.com/nlohmann/json.git
-        GIT_TAG v3.11.3
-    )
-    FetchContent_MakeAvailable(nlohmann_json)
-endif()
-
 foreach(test_src ${TEST_SOURCES})
     get_filename_component(test_name ${test_src} NAME_WE)
     add_executable(${test_name} ${test_src})
@@ -24,7 +11,6 @@ foreach(test_src ${TEST_SOURCES})
             metric_utils
             test_utils
             tqdm
-            nlohmann_json::nlohmann_json
     )
 endforeach()
 

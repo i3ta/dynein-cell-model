@@ -1,31 +1,28 @@
 #include <cmath>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
 
-#include <nlohmann/json.hpp>
 #include <opencv2/core/matx.hpp>
-
-#include <dynein_cell_model/dynein_cell_model.h>
-#include <metric_utils/metric_utils.hpp>
 #include <tqdm.hpp>
 
-using json = nlohmann::json;
+#include "dynein_cell_model/dynein_cell_model.h"
+#include "dynein_cell_model/io.h"
+#include "dynein_cell_model/simulate.h"
+#include "metric_utils/metric_utils.h"
 
 namespace dcm = dynein_cell_model;
 
 int main(int argc, char *argv[]) {
   metrics::ScopedTimer auto_timer("Total Elapsed Time");
 
-  if (argc != 3) {
-    std::cerr << "Expected 2 arguments, found " << argc - 1 << std::endl;
+  if (argc != 2) {
+    std::cerr << "Expected 1 argument, found " << argc - 1 << std::endl;
     return 1;
   }
 
   std::filesystem::path root{argv[1]};
-  std::filesystem::path metrics_file_path{argv[2]};
 
   metrics::ScopedTimer timer("sections", false);
   std::cout << "Starting setup..." << std::endl;
@@ -45,44 +42,40 @@ int main(int argc, char *argv[]) {
 
   // parse masks
   dcm::Mat_i nucleus_mask =
-      dcm::matrix_from_mask(cell_file.string(), cv::Vec3b(127, 127, 127));
+      dcm::matrixFromMask(cell_file.string(), cv::Vec3b(127, 127, 127));
   dcm::Mat_i cell_mask =
-      dcm::matrix_from_mask(cell_file.string(), cv::Vec3b(255, 255, 255)) +
+      dcm::matrixFromMask(cell_file.string(), cv::Vec3b(255, 255, 255)) +
       nucleus_mask;
   dcm::Mat_i env_mask =
-      dcm::matrix_from_mask(env_file.string(), cv::Vec3b(255, 255, 255));
+      dcm::matrixFromMask(env_file.string(), cv::Vec3b(255, 255, 255));
   dcm::Mat_i A_init =
-      dcm::matrix_from_mask(A_file.string(), cv::Vec3b(255, 255, 255));
+      dcm::matrixFromMask(A_file.string(), cv::Vec3b(255, 255, 255));
   dcm::Mat_i AC_init =
-      dcm::matrix_from_mask(AC_file.string(), cv::Vec3b(255, 255, 255));
+      dcm::matrixFromMask(AC_file.string(), cv::Vec3b(255, 255, 255));
   dcm::Mat_i I_init =
-      dcm::matrix_from_mask(I_file.string(), cv::Vec3b(255, 255, 255));
+      dcm::matrixFromMask(I_file.string(), cv::Vec3b(255, 255, 255));
   dcm::Mat_i IC_init =
-      dcm::matrix_from_mask(IC_file.string(), cv::Vec3b(255, 255, 255));
+      dcm::matrixFromMask(IC_file.string(), cv::Vec3b(255, 255, 255));
 
-  // create cell
-  dcm::CellModel cell(config);
-  cell.set_cell(cell_mask);
-  cell.set_nuc(nucleus_mask);
-  cell.set_env(env_mask.sparseView());
-  cell.set_A(A_init.cast<double>());
-  cell.set_AC(AC_init.cast<double>());
-  cell.set_I(I_init.cast<double>());
-  cell.set_IC(IC_init.cast<double>());
-  cell.set_output(results.string());
-
-  cell.init_adhesions();
+  dcm::CellState cell = dcm::initializeState(config, cell_mask, nucleus_mask,
+                                             env_mask.sparseView());
+  cell.A = A_init.cast<double>();
+  cell.AC = AC_init.cast<double>();
+  cell.I = I_init.cast<double>();
+  cell.IC = IC_init.cast<double>();
+  dcm::setOutput(cell, results.string());
+  dcm::initializeAdhesions(cell);
 
   std::cout << "Setup done. (" << timer.elapsed().count() << " ms)"
             << std::endl;
   std::vector<double> iter_times;
 
-  std::cout << "Running iterations: " << config.num_iters_ << " iterations"
+  std::cout << "Running iterations: " << config.numIters << " iterations"
             << std::endl;
-  auto A = tq::trange(config.num_iters_);
+  auto A = tq::trange(config.numIters);
   for (int i : A) {
     timer.reset();
-    cell.step();
+    dcm::step(cell);
     iter_times.push_back(timer.elapsed().count());
 
     Eigen::Map<dcm::Arr_d> iter_arr(iter_times.data(), iter_times.size());
@@ -98,12 +91,4 @@ int main(int argc, char *argv[]) {
   std::cout << "----- Summary -----\n";
   std::cout << "Mean: " << mean << " ms / it\n";
   std::cout << "Stdev: " << stdev << " ms / it\n";
-
-  // Recording metrics for further optimization
-  json metrics;
-  metrics["iteration_times"] = json(iter_times);
-
-  std::ofstream metrics_file(metrics_file_path.string());
-  metrics_file << std::setw(4) << metrics << std::endl;
-  metrics_file.close();
 }

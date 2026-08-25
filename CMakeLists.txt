@@ -18,6 +18,7 @@ add_subdirectory(src)
 add_subdirectory(examples)
 add_subdirectory(tests)
 
+
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()

@@ -2,7 +2,7 @@
 #include <iostream>
 #include <string>
 
-#include <metric_utils/metric_utils.hpp>
+#include "metric_utils/metric_utils.h"
 
 namespace metrics {
 ScopedTimer::ScopedTimer(const std::string name)

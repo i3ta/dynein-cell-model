@@ -1,10 +1,7 @@
-add_library(test_utils test_utils.cpp)
-find_package(GTest REQUIRED)
+add_library(test_utils INTERFACE)
 
-target_include_directories(test_utils PUBLIC include)
-target_link_libraries(test_utils PUBLIC 
+target_include_directories(test_utils INTERFACE include)
+target_link_libraries(test_utils INTERFACE
     dynein_cell_model
     cell_nuc
-    GTest::gtest
-    GTest::gtest_main
 )

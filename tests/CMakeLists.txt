@@ -7,8 +7,6 @@ foreach(test_src ${TEST_SOURCES})
     get_filename_component(test_name ${test_src} NAME_WE)
     add_executable(${test_name} 
         ${test_src}
-        ${CMAKE_SOURCE_DIR}/src/cell_nuc/cell_nuc.cpp
-        ${CMAKE_SOURCE_DIR}/src/dynein_cell_model/dynein_cell_model.cpp
     )
 
     target_compile_definitions(${test_name}
@@ -30,5 +28,5 @@ foreach(test_src ${TEST_SOURCES})
     )
 
     include(GoogleTest)
-    gtest_discover_tests(${test_name})
+    gtest_discover_tests(${test_name} DISCOVERY_TIMEOUT 60)
 endforeach()

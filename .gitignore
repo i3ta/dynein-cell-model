@@ -11,7 +11,9 @@ CTestTestfile.cmake
 _deps
 CMakeUserPresets.json
 build/
+build-asan/
 .cache/
+.clangd
 
 **/results.h5
 .DS_Store

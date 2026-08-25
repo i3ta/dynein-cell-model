@@ -1,4 +1,11 @@
-add_library(dynein_cell_model dynein_cell_model.cpp)
+add_library(dynein_cell_model
+    diffusion.cpp
+    morphology.cpp
+    config.cpp
+    state.cpp
+    dynein_field.cpp
+    io.cpp
+    simulate.cpp)
 
 # Include directories
 target_include_directories(dynein_cell_model PUBLIC include)

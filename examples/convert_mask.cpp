@@ -3,7 +3,7 @@
 #include <opencv2/imgcodecs.hpp>
 #include <string>
 
-#include <metric_utils/metric_utils.hpp>
+#include "metric_utils/metric_utils.h"
 
 void text_to_image(const std::string &file, const std::string &output_path);
 
