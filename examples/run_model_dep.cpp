@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
@@ -30,7 +31,7 @@ int main(int argc, char *argv[]) {
   const auto acFile = root / "AC.png";
   const auto iFile = root / "I.png";
   const auto icFile = root / "IC.png";
-  const auto results = root / "results_dep.h5";
+  const auto results = root / "results.h5";
 
   dcm::CellModelConfig config(configFile.string());
   const dcm::ViewI nucleus =
@@ -42,21 +43,51 @@ int main(int argc, char *argv[]) {
       dcm::matrixFromMask(envFile.string(), cv::Vec3b(255, 255, 255));
   const dcm::ViewI aInit =
       dcm::matrixFromMask(aFile.string(), cv::Vec3b(255, 255, 255));
-  const dcm::ViewI acInit =
-      dcm::matrixFromMask(acFile.string(), cv::Vec3b(255, 255, 255));
+  dcm::ViewD acInit =
+      dcm::matrixFromMask(acFile.string(), cv::Vec3b(255, 255, 255))
+          .cast<double>();
   const dcm::ViewI iInit =
       dcm::matrixFromMask(iFile.string(), cv::Vec3b(255, 255, 255));
-  const dcm::ViewI icInit =
-      dcm::matrixFromMask(icFile.string(), cv::Vec3b(255, 255, 255));
+  dcm::ViewD icInit =
+      dcm::matrixFromMask(icFile.string(), cv::Vec3b(255, 255, 255))
+          .cast<double>();
+
+  // Preserve the metrics-runner initial polarization: inactive cytosolic
+  // signal starts at 0.75, while active cytosolic signal occupies the front
+  // (higher-row) half of the cell.
+  icInit *= 0.75;
+  int minRow = config.simRows;
+  int maxRow = 0;
+  for (int c = 0; c < config.simCols; ++c) {
+    for (int r = 0; r < config.simRows; ++r) {
+      if (cell(r, c) == 1) {
+        minRow = std::min(minRow, r);
+        maxRow = std::max(maxRow, r);
+      }
+    }
+  }
+  const int midRow = (minRow + maxRow) / 2;
+  for (int c = 0; c < config.simCols; ++c) {
+    for (int r = 0; r < config.simRows; ++r) {
+      if (nucleus(r, c) == 1) {
+        acInit(r, c) = 0;
+        icInit(r, c) = 0;
+      } else if (cell(r, c) == 1 && r > midRow) {
+        acInit(r, c) = 0.75;
+        icInit(r, c) = 0;
+      }
+    }
+  }
 
   dcm::CellState state =
       dcm::initializeState(config, cell, nucleus, env.sparseView());
   state.A = aInit.cast<double>();
-  state.AC = acInit.cast<double>();
+  state.AC = acInit;
   state.I = iInit.cast<double>();
-  state.IC = icInit.cast<double>();
+  state.IC = icInit;
   dcm::setOutput(state, results.string());
   dcm::initializeAdhesions(state);
+  dcm::saveState(state);
 
   metrics::ScopedTimer timer("iteration", false);
   std::vector<double> times;

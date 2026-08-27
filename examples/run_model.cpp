@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
@@ -54,17 +55,47 @@ int main(int argc, char *argv[]) {
       dcm::matrixFromMask(acFile.string(), cv::Vec3b(255, 255, 255));
   dcm::Mat_i I_init =
       dcm::matrixFromMask(iFile.string(), cv::Vec3b(255, 255, 255));
-  dcm::Mat_i IC_init =
-      dcm::matrixFromMask(icFile.string(), cv::Vec3b(255, 255, 255));
+  dcm::Mat_d IC_init =
+      dcm::matrixFromMask(icFile.string(), cv::Vec3b(255, 255, 255))
+          .cast<double>();
+
+  // Preserve the metrics-runner initial polarization: inactive cytosolic
+  // signal starts at 0.75, while active cytosolic signal occupies the front
+  // (higher-row) half of the cell.
+  IC_init *= 0.75;
+  dcm::Mat_d AC_polarized = AC_init.cast<double>();
+  int minRow = config.simRows;
+  int maxRow = 0;
+  for (int c = 0; c < config.simCols; ++c) {
+    for (int r = 0; r < config.simRows; ++r) {
+      if (cell_mask(r, c) == 1) {
+        minRow = std::min(minRow, r);
+        maxRow = std::max(maxRow, r);
+      }
+    }
+  }
+  const int midRow = (minRow + maxRow) / 2;
+  for (int c = 0; c < config.simCols; ++c) {
+    for (int r = 0; r < config.simRows; ++r) {
+      if (nucleus_mask(r, c) == 1) {
+        AC_polarized(r, c) = 0;
+        IC_init(r, c) = 0;
+      } else if (cell_mask(r, c) == 1 && r > midRow) {
+        AC_polarized(r, c) = 0.75;
+        IC_init(r, c) = 0;
+      }
+    }
+  }
 
   dcm::CellState state = dcm::initializeState(config, cell_mask, nucleus_mask,
                                               env_mask.sparseView());
   state.A = A_init.cast<double>();
-  state.AC = AC_init.cast<double>();
+  state.AC = AC_polarized;
   state.I = I_init.cast<double>();
-  state.IC = IC_init.cast<double>();
+  state.IC = IC_init;
   dcm::setOutput(state, results.string());
   dcm::initializeAdhesions(state);
+  dcm::saveState(state);
 
   std::cout << "Setup done. (" << timer.elapsed().count() << " ms)"
             << std::endl;
