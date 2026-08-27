@@ -62,16 +62,16 @@ int outline4(const OutlineMask &outline, const ViewI &body, int simRows,
   int perim = 0;
 
   for (const auto &[row, col] : outline) {
-      for (int i = 0; i < 4; i++) {
-        const int nr = row + DR[i];
-        const int nc = col + DC[i];
-        if (nr < 0 || nr >= simRows || nc < 0 || nc >= sim_cols)
-          continue;
-        if (body(nr, nc) == 1) {
-          perim++;
-          break;
-        }
+    for (int i = 0; i < 4; i++) {
+      const int nr = row + DR[i];
+      const int nc = col + DC[i];
+      if (nr < 0 || nr >= simRows || nc < 0 || nc >= sim_cols)
+        continue;
+      if (body(nr, nc) == 1) {
+        perim++;
+        break;
       }
+    }
   }
 
   return perim;
@@ -131,8 +131,10 @@ void updateCell(CellState &state, const bool full = false) {
     }
   }
 
-  state.innerOutline.rebuildCoordinatesColumnMajor();
-  state.outline.rebuildCoordinatesColumnMajor();
+  if constexpr (DYNEIN_CELL_MODEL_DEBUG_CPP) {
+    state.innerOutline.rebuildCoordinatesColumnMajor();
+    state.outline.rebuildCoordinatesColumnMajor();
+  }
 
   // update cell volume and perimeter
   state.V = (state.cell.array() != 0).count();
@@ -236,8 +238,10 @@ void updateNuc(CellState &state, const bool recheckBounds = false) {
     }
   }
 
-  state.innerOutlineNuc.rebuildCoordinatesColumnMajor();
-  state.outlineNuc.rebuildCoordinatesColumnMajor();
+  if constexpr (DYNEIN_CELL_MODEL_DEBUG_CPP) {
+    state.innerOutlineNuc.rebuildCoordinatesColumnMajor();
+    state.outlineNuc.rebuildCoordinatesColumnMajor();
+  }
 
   // update nucleus volume and perimeter
   state.PNuc =
@@ -852,13 +856,15 @@ void generateDynField(CellState &state, const OutlineMask &cellOutline,
   // Pre-compute nuc outline coordinates for faster iteration
   std::vector<std::pair<int, int>> nucCoords;
   nucCoords.reserve(nucOutline.size());
-  for (const auto &coord : nucOutline) nucCoords.push_back(coord);
+  for (const auto &coord : nucOutline)
+    nucCoords.push_back(coord);
 
 #ifdef USE_OPENMP
   // Collect cell outline coordinates for parallelization
   std::vector<std::pair<int, int>> cellCoords;
   cellCoords.reserve(cellOutline.size());
-  for (const auto &coord : cellOutline) cellCoords.push_back(coord);
+  for (const auto &coord : cellOutline)
+    cellCoords.push_back(coord);
 
   // Thread-local accumulators for dynF and scaling
   const int numThreads = omp_get_max_threads();
@@ -925,52 +931,52 @@ void generateDynField(CellState &state, const OutlineMask &cellOutline,
   // Single-threaded version
   for (const auto &[r, c] : cellOutline) {
 
-      // Early exit if AC is too low
-      const double acVal = state.AC(r, c);
-      if (acVal <= 0.1)
-        continue;
+    // Early exit if AC is too low
+    const double acVal = state.AC(r, c);
+    if (acVal <= 0.1)
+      continue;
 
-      // get nucleus pixel closest to current pixel
-      int minDist2 = INT_MAX;
-      int minR = -1, minC = -1;
-      for (const auto &nc : nucCoords) {
-        const int dr = r - nc.first;
-        const int dc = c - nc.second;
-        const int dist2 = dr * dr + dc * dc;
-        if (dist2 < minDist2) {
-          minDist2 = dist2;
-          minR = nc.first;
-          minC = nc.second;
+    // get nucleus pixel closest to current pixel
+    int minDist2 = INT_MAX;
+    int minR = -1, minC = -1;
+    for (const auto &nc : nucCoords) {
+      const int dr = r - nc.first;
+      const int dc = c - nc.second;
+      const int dist2 = dr * dr + dc * dc;
+      if (dist2 < minDist2) {
+        minDist2 = dist2;
+        minR = nc.first;
+        minC = nc.second;
+      }
+    }
+
+    const double distF = std::sqrt(minDist2) * (acVal - 0.1);
+    const int rStart = std::max(minR - n, 0);
+    const int rEnd = std::min(minR + n, config.simRows - 1);
+    const int cStart = std::max(minC - n, 0);
+    const int cEnd = std::min(minC + n, config.simCols - 1);
+
+    for (int i = rStart; i <= rEnd; ++i) {
+      for (int j = cStart; j <= cEnd; ++j) {
+        if (nucOutline.contains(i, j)) {
+          state.dynF(i, j) += distF;
+          scaling(i, j) += 1;
         }
       }
-
-      const double distF = std::sqrt(minDist2) * (acVal - 0.1);
-      const int rStart = std::max(minR - n, 0);
-      const int rEnd = std::min(minR + n, config.simRows - 1);
-      const int cStart = std::max(minC - n, 0);
-      const int cEnd = std::min(minC + n, config.simCols - 1);
-
-      for (int i = rStart; i <= rEnd; ++i) {
-        for (int j = cStart; j <= cEnd; ++j) {
-          if (nucOutline.contains(i, j)) {
-            state.dynF(i, j) += distF;
-            scaling(i, j) += 1;
-          }
-        }
-      }
+    }
   }
 #endif
 
   // normalize elements
   for (const auto &[r, c] : nucOutline) {
-      if (scaling(r, c) == 0) continue;
-      if (!retract) {
-        state.dynF(r, c) =
-            std::min(state.dynF(r, c) / scaling(r, c) / 60, 1.0);
-      } else {
-        state.dynF(r, c) =
-            std::max(1 - state.dynF(r, c) / scaling(r, c) / 60, 0.0);
-      }
+    if (scaling(r, c) == 0)
+      continue;
+    if (!retract) {
+      state.dynF(r, c) = std::min(state.dynF(r, c) / scaling(r, c) / 60, 1.0);
+    } else {
+      state.dynF(r, c) =
+          std::max(1 - state.dynF(r, c) / scaling(r, c) / 60, 0.0);
+    }
   }
 }
 
@@ -985,18 +991,20 @@ void updateFrame(CellState &state) {
   // boundaries
   for (const auto &[i, j] : state.innerOutline) {
 
-      // Update bounding box
-      if (state.cell(i, j) != 0) {
-        minRow = std::min(minRow, i);
-        maxRow = std::max(maxRow, i);
-        minCol = std::min(minCol, j);
-        maxCol = std::max(maxCol, j);
-      }
+    // Update bounding box
+    if (state.cell(i, j) != 0) {
+      minRow = std::min(minRow, i);
+      maxRow = std::max(maxRow, i);
+      minCol = std::min(minCol, j);
+      maxCol = std::max(maxCol, j);
+    }
   }
 
   if (minRow == std::numeric_limits<int>::max()) {
-    state.frameRowStart = 0; state.frameRowEnd = conf.simRows - 1;
-    state.frameColStart = 0; state.frameColEnd = conf.simCols - 1;
+    state.frameRowStart = 0;
+    state.frameRowEnd = conf.simRows - 1;
+    state.frameColStart = 0;
+    state.frameColEnd = conf.simCols - 1;
     return;
   }
   state.frameRowStart = std::max(0, minRow - conf.framePadding);

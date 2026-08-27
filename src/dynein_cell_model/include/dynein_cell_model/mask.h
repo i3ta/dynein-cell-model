@@ -52,7 +52,8 @@ public:
 
   /** Remove a coordinate. This is O(n) and intended for infrequent updates. */
   void unset(int row, int col) {
-    if (!contains(row, col)) return;
+    if (!contains(row, col))
+      return;
     mask_(row, col) = 0;
     const Coord target{row, col};
     coords_.erase(std::find(coords_.begin(), coords_.end(), target));
@@ -71,7 +72,8 @@ public:
     coords_.clear();
     for (int col = 0; col < cols(); ++col)
       for (int row = 0; row < rows(); ++row)
-        if (contains(row, col)) coords_.emplace_back(row, col);
+        if (contains(row, col))
+          coords_.emplace_back(row, col);
   }
 
   [[nodiscard]] const DenseMask &mask() const noexcept { return mask_; }
