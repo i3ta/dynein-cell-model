@@ -95,6 +95,7 @@ public:
   std::string saveDir; ///< directory to save snapshots to;
   int seed;
   int numIters;
+  std::string diffusionBackend; ///< "eigen" (default) or "kokkos"
 };
 
 } // namespace dynein_cell_model

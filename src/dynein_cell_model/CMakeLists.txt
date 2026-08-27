@@ -1,5 +1,6 @@
 add_library(dynein_cell_model
     diffusion.cpp
+    kokkos_diffusion.cpp
     morphology.cpp
     config.cpp
     state.cpp
@@ -9,6 +10,26 @@ add_library(dynein_cell_model
 
 # Include directories
 target_include_directories(dynein_cell_model PUBLIC include)
+
+option(DCM_ENABLE_KOKKOS "Build the portable Kokkos diffusion backend" ON)
+if(DCM_ENABLE_KOKKOS)
+    find_package(Kokkos 4.5...<5.0 CONFIG QUIET)
+    if(NOT Kokkos_FOUND)
+        message(STATUS "Kokkos not found, fetching Kokkos 4.5.01")
+        include(FetchContent)
+        # AppleClang's C++23 mdspan headers are not compatible with Kokkos
+        # 4.5.x's experimental mdspan integration; this model does not use it.
+        set(Kokkos_ENABLE_IMPL_MDSPAN OFF CACHE BOOL
+            "Disable Kokkos experimental mdspan support" FORCE)
+        FetchContent_Declare(
+            Kokkos
+            URL https://github.com/kokkos/kokkos/releases/download/4.5.01/kokkos-4.5.01.tar.gz
+            URL_HASH SHA256=52d003ffbbe05f30c89966e4009c017efb1662b02b2b73190670d3418719564c)
+        FetchContent_MakeAvailable(Kokkos)
+    endif()
+    target_link_libraries(dynein_cell_model PUBLIC Kokkos::kokkos)
+    target_compile_definitions(dynein_cell_model PUBLIC DCM_ENABLE_KOKKOS=1)
+endif()
 
 # -------- CURL (for HDF5 system package) --------
 find_package(CURL REQUIRED)

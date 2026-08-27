@@ -1,4 +1,5 @@
 #include <fstream>
+#include <stdexcept>
 
 #include <yaml-cpp/node/node.h>
 #include <yaml-cpp/node/parse.h>
@@ -18,6 +19,7 @@ CellModelConfig::CellModelConfig() {
   DA = 0.0003333333; DI = 0.0333333333; k0Min = 0.01; gamma = 1;
   delta = 1; A0 = 0.4; F0 = 0.5; kn = 1; ks = 0.25; eps = 0.1;
   AMax = 1; AMin = 0; ACMax = 1; ACMin = 0; t = 0; saveDir.clear();
+  diffusionBackend = "eigen";
   k0 = 0.10;
   k0Scalar = 10;
   k = 1.6;
@@ -101,6 +103,11 @@ CellModelConfig::CellModelConfig(std::string config_file) : CellModelConfig() {
   frT = config["fr_t"].as<int>();
   t = config["t"] ? config["t"].as<int>() : 0;
   saveDir = config["save_dir"] ? config["save_dir"].as<std::string>() : "";
+  diffusionBackend = config["diffusion_backend"]
+                         ? config["diffusion_backend"].as<std::string>()
+                         : "eigen";
+  if (diffusionBackend != "eigen" && diffusionBackend != "kokkos")
+    throw std::invalid_argument("diffusion_backend must be 'eigen' or 'kokkos'");
 }
 
 void CellModelConfig::saveFile(std::string dest_file) const {
@@ -152,6 +159,7 @@ void CellModelConfig::saveFile(std::string dest_file) const {
   config["fr_t"] = frT;
   config["t"] = t;
   config["save_dir"] = saveDir;
+  config["diffusion_backend"] = diffusionBackend;
 
   std::ofstream fout(dest_file);
   fout << config;

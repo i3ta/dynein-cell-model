@@ -4,6 +4,7 @@
 #include <highfive/H5File.hpp>
 
 #include "dynein_cell_model/dynein_cell_model.h"
+#include "dynein_cell_model/diffusion.h"
 #include "dynein_cell_model/io.h"
 #include "dynein_cell_model/simulate.h"
 
@@ -49,6 +50,7 @@ TEST(ProceduralApi, ConfigRoundTripsEverySavedField) {
   config.g = 1.7;
   config.propFactor = 0.4;
   config.saveDir = "snapshots";
+  config.diffusionBackend = "kokkos";
   config.t = 3;
   const auto path =
       std::filesystem::temp_directory_path() / "dcm-config-roundtrip.yaml";
@@ -59,8 +61,50 @@ TEST(ProceduralApi, ConfigRoundTripsEverySavedField) {
   EXPECT_DOUBLE_EQ(loaded.g, config.g);
   EXPECT_DOUBLE_EQ(loaded.propFactor, config.propFactor);
   EXPECT_EQ(loaded.saveDir, config.saveDir);
+  EXPECT_EQ(loaded.diffusionBackend, config.diffusionBackend);
   EXPECT_EQ(loaded.t, config.t);
   std::filesystem::remove(path);
+}
+
+TEST(ProceduralApi, KokkosDiffusionMatchesEigenReference) {
+#ifndef DCM_ENABLE_KOKKOS
+  GTEST_SKIP() << "Kokkos support was disabled at build time";
+#else
+  auto config = smallConfig();
+  config.diffT = 3;
+  const auto cell = disk(20, 20, 6);
+  const auto nuc = disk(20, 20, 2);
+  const auto env = environment(20, 20);
+  auto eigenState = dcm::initializeState(config, cell, nuc, env);
+  auto kokkosState = dcm::initializeState(config, cell, nuc, env);
+
+  auto initializeFields = [](dcm::CellState &state) {
+    for (int row = 0; row < state.config.simRows; ++row) {
+      for (int col = 0; col < state.config.simCols; ++col) {
+        const double value = 0.01 * row + 0.001 * col;
+        state.k0Adh(row, col) = 0.02 + 0.0001 * value;
+        state.A(row, col) = 0.15 + value;
+        state.I(row, col) = 0.70 - 0.1 * value;
+        state.F(row, col) = 0.05 + 0.2 * value;
+        state.AC(row, col) = 0.25 + 0.5 * value;
+        state.IC(row, col) = 0.60 - 0.15 * value;
+        state.FC(row, col) = 0.10 + 0.1 * value;
+      }
+    }
+  };
+  initializeFields(eigenState);
+  initializeFields(kokkosState);
+
+  dcm::diffuseK0AdhEigen(eigenState);
+  dcm::diffuseK0AdhKokkos(kokkosState);
+
+  EXPECT_TRUE(eigenState.A.isApprox(kokkosState.A, 1e-12));
+  EXPECT_TRUE(eigenState.I.isApprox(kokkosState.I, 1e-12));
+  EXPECT_TRUE(eigenState.F.isApprox(kokkosState.F, 1e-12));
+  EXPECT_TRUE(eigenState.AC.isApprox(kokkosState.AC, 1e-12));
+  EXPECT_TRUE(eigenState.IC.isApprox(kokkosState.IC, 1e-12));
+  EXPECT_TRUE(eigenState.FC.isApprox(kokkosState.FC, 1e-12));
+#endif
 }
 
 TEST(ProceduralApi, InitializesAndValidatesMasksDeterministically) {

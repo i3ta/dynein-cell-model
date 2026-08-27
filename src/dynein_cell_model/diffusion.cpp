@@ -37,6 +37,14 @@ void correctConcentrations(CellState &state) {
 }
 
 void diffuseK0Adh(CellState &state) {
+  if (state.config.diffusionBackend == "kokkos") {
+    diffuseK0AdhKokkos(state);
+    return;
+  }
+  diffuseK0AdhEigen(state);
+}
+
+void diffuseK0AdhEigen(CellState &state) {
   const auto &config = state.config;
 
   double s2C = 0.05;

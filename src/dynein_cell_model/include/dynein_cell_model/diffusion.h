@@ -15,6 +15,12 @@ void correctConcentrations(CellState &state);
  */
 void diffuseK0Adh(CellState &state);
 
+/** Reference Eigen implementation, retained for numerical parity checks. */
+void diffuseK0AdhEigen(CellState &state);
+
+/** Kokkos implementation of the reaction-diffusion update. */
+void diffuseK0AdhKokkos(CellState &state);
+
 /**
  * @brief Update and smooth the adhesion field
  */
