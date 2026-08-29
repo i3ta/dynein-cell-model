@@ -1,7 +1,6 @@
 #pragma once
 
 #include <array>
-#include <bitset>
 #include <cstdint>
 #include <utility>
 
@@ -133,16 +132,16 @@ constexpr bool isValidRetractConfig(const AdjSet conf) {
   return !unsupportedDiagonalGap && !pinch;
 }
 
-constexpr std::bitset<256> generateProtrudeConf() {
-  std::bitset<256> confs;
+constexpr std::array<bool, 256> generateProtrudeConf() {
+  std::array<bool, 256> confs{};
   for (int i = 0; i < 256; ++i) {
     confs[i] = isValidProtrudeConfig(static_cast<uint8_t>(i));
   }
   return confs;
 }
 
-constexpr std::bitset<256> generateRetractConf() {
-  std::bitset<256> confs;
+constexpr std::array<bool, 256> generateRetractConf() {
+  std::array<bool, 256> confs{};
   for (int i = 0; i < 256; ++i) {
     confs[i] = isValidRetractConfig(static_cast<uint8_t>(i));
   }
@@ -151,7 +150,7 @@ constexpr std::bitset<256> generateRetractConf() {
 
 } // namespace
 
-constexpr std::bitset<256> protrudeConf = generateProtrudeConf();
-constexpr std::bitset<256> retractConf = generateRetractConf();
+constexpr std::array<bool, 256> protrudeConf = generateProtrudeConf();
+constexpr std::array<bool, 256> retractConf = generateRetractConf();
 
 } // namespace dynein_cell_model
