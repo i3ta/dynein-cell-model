@@ -43,3 +43,4 @@ diff_t: 100
 save_t: 1000
 adh_t: 200
 fr_t: 50
+diffusion_backend: kokkos
