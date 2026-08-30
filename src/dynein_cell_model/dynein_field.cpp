@@ -77,15 +77,18 @@ void updateDynNucField(CellState &state) {
   ViewI parent = ViewI::Constant(config.simRows, config.simCols, -1);
   ViewI scaling = ViewI::Zero(config.simRows, config.simCols);
   std::vector<std::pair<int, int>> order;
+  std::vector<int> distance;
   for (const auto &[row, col] : state.innerOutlineNuc) {
     parent(row, col) = -2;
     order.push_back({row, col});
+    distance.push_back(0);
   }
   const int dr[] = {1, -1, 0, 0}, dc[] = {0, 0, 1, -1};
   for (size_t head = 0; head < order.size(); ++head) {
     const auto [r, c] = order[head];
     if (state.innerOutline.contains(r, c)) {
-      state.dynF(r, c) = state.AC(r, c);
+      state.dynF(r, c) =
+          distance[head] * std::max(state.AC(r, c) - 0.1, 0.0);
       scaling(r, c) = 1;
     }
     for (int n = 0; n < 4; ++n) {
@@ -97,6 +100,7 @@ void updateDynNucField(CellState &state) {
         continue;
       parent(nr, nc) = r * config.simCols + c;
       order.push_back({nr, nc});
+      distance.push_back(distance[head] + 1);
     }
   }
   for (auto it = order.rbegin(); it != order.rend(); ++it) {
