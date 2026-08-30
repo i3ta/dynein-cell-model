@@ -14,7 +14,7 @@ namespace dynein_cell_model {
 CellModelConfig::CellModelConfig() {
   // Conservative defaults keep a directly constructed config fully valid.
   k = 1.6;
-  kNuc = 2;
+  kNuc = 4;
   g = 1;
   T = 500;
   TNuc = 1;
@@ -23,8 +23,8 @@ CellModelConfig::CellModelConfig() {
   adhBasal = 0.3;
   adhFrac = 0.03;
   adhNum = 50;
-  R0 = 13;
-  RNuc = 2;
+  R0 = 20;
+  RNuc = 1;
   dynBasal = 0.6;
   propFactor = 1;
   dynSigma = 8.56;
@@ -50,10 +50,10 @@ CellModelConfig::CellModelConfig() {
   k0Scalar = 10;
   k = 1.6;
   T = 500;
-  kNuc = 2;
+  kNuc = 4;
   TNuc = 1;
-  RNuc = 2;
-  R0 = 13;
+  RNuc = 1;
+  R0 = 20;
   dynBasal = 0.6;
   dynSigma = 8.56;
   dynScale = 0.683;
