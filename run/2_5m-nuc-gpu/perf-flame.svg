@@ -1,0 +1,998 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="422" onload="init(evt)" viewBox="0 0 1200 422" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs>
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	text { font-family:Verdana; font-size:12px; fill:rgb(0,0,0); }
+	#search, #ignorecase { opacity:0.1; cursor:pointer; }
+	#search:hover, #search.show, #ignorecase:hover, #ignorecase.show { opacity:1; }
+	#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+	#title { text-anchor:middle; font-size:17px}
+	#unzoom { cursor:pointer; }
+	#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+	.hide { display:none; }
+	.parent { opacity:0.5; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	"use strict";
+	var details, searchbtn, unzoombtn, matchedtxt, svg, searching, currentSearchTerm, ignorecase, ignorecaseBtn;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		ignorecaseBtn = document.getElementById("ignorecase");
+		unzoombtn = document.getElementById("unzoom");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+		currentSearchTerm = null;
+
+		// use GET parameters to restore a flamegraphs state.
+		var params = get_params();
+		if (params.x && params.y)
+			zoom(find_group(document.querySelector('[x="' + params.x + '"][y="' + params.y + '"]')));
+                if (params.s) search(params.s);
+	}
+
+	// event listeners
+	window.addEventListener("click", function(e) {
+		var target = find_group(e.target);
+		if (target) {
+			if (target.nodeName == "a") {
+				if (e.ctrlKey === false) return;
+				e.preventDefault();
+			}
+			if (target.classList.contains("parent")) unzoom(true);
+			zoom(target);
+			if (!document.querySelector('.parent')) {
+				// we have basically done a clearzoom so clear the url
+				var params = get_params();
+				if (params.x) delete params.x;
+				if (params.y) delete params.y;
+				history.replaceState(null, null, parse_params(params));
+				unzoombtn.classList.add("hide");
+				return;
+			}
+
+			// set parameters for zoom state
+			var el = target.querySelector("rect");
+			if (el && el.attributes && el.attributes.y && el.attributes._orig_x) {
+				var params = get_params()
+				params.x = el.attributes._orig_x.value;
+				params.y = el.attributes.y.value;
+				history.replaceState(null, null, parse_params(params));
+			}
+		}
+		else if (e.target.id == "unzoom") clearzoom();
+		else if (e.target.id == "search") search_prompt();
+		else if (e.target.id == "ignorecase") toggle_ignorecase();
+	}, false)
+
+	// mouse-over for info
+	// show
+	window.addEventListener("mouseover", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = "Function: " + g_to_text(target);
+	}, false)
+
+	// clear
+	window.addEventListener("mouseout", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = ' ';
+	}, false)
+
+	// ctrl-F for search
+	// ctrl-I to toggle case-sensitive search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+		else if (e.ctrlKey && e.keyCode === 73) {
+			e.preventDefault();
+			toggle_ignorecase();
+		}
+	}, false)
+
+	// functions
+	function get_params() {
+		var params = {};
+		var paramsarr = window.location.search.substr(1).split('&');
+		for (var i = 0; i < paramsarr.length; ++i) {
+			var tmp = paramsarr[i].split("=");
+			if (!tmp[0] || !tmp[1]) continue;
+			params[tmp[0]]  = decodeURIComponent(tmp[1]);
+		}
+		return params;
+	}
+	function parse_params(params) {
+		var uri = "?";
+		for (var key in params) {
+			uri += key + '=' + encodeURIComponent(params[key]) + '&';
+		}
+		if (uri.slice(-1) == "&")
+			uri = uri.substring(0, uri.length - 1);
+		if (uri == '?')
+			uri = window.location.href.split('?')[0];
+		return uri;
+	}
+	function find_child(node, selector) {
+		var children = node.querySelectorAll(selector);
+		if (children.length) return children[0];
+	}
+	function find_group(node) {
+		var parent = node.parentElement;
+		if (!parent) return;
+		if (parent.id == "frames") return node;
+		return find_group(parent);
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_" + attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_" + attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes.width.value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes.x.value = parseFloat(r.attributes.x.value) + 3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2 * 12 * 0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		var sl = t.getSubStringLength(0, txt.length);
+		// check if only whitespace or if we can fit the entire string into width w
+		if (/^ *$/.test(txt) || sl < w)
+			return;
+
+		// this isn't perfect, but gives a good starting point
+		// and avoids calling getSubStringLength too often
+		var start = Math.floor((w/sl) * txt.length);
+		for (var x = start; x > 0; x = x-2) {
+			if (t.getSubStringLength(0, x + 2) <= w) {
+				t.textContent = txt.substring(0, x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = (parseFloat(e.attributes.x.value) - x - 10) * ratio + 10;
+				if (e.tagName == "text")
+					e.attributes.x.value = find_child(e.parentNode, "rect[x]").attributes.x.value + 3;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseFloat(e.attributes.width.value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_child(c[i], x - 10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = 10;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseInt(svg.width.baseVal.value) - (10 * 2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr.width.value);
+		var xmin = parseFloat(attr.x.value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr.y.value);
+		var ratio = (svg.width.baseVal.value - 2 * 10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		unzoombtn.classList.remove("hide");
+
+		var el = document.getElementById("frames").children;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a.x.value);
+			var ew = parseFloat(a.width.value);
+			var upstack;
+			// Is it an ancestor
+			if (0 == 0) {
+				upstack = parseFloat(a.y.value) > ymin;
+			} else {
+				upstack = parseFloat(a.y.value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.classList.add("parent");
+					zoom_parent(e);
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.classList.add("hide");
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.classList.add("hide");
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					update_text(e);
+				}
+			}
+		}
+		search();
+	}
+	function unzoom(dont_update_text) {
+		unzoombtn.classList.add("hide");
+		var el = document.getElementById("frames").children;
+		for(var i = 0; i < el.length; i++) {
+			el[i].classList.remove("parent");
+			el[i].classList.remove("hide");
+			zoom_reset(el[i]);
+			if(!dont_update_text) update_text(el[i]);
+		}
+		search();
+	}
+	function clearzoom() {
+		unzoom();
+
+		// remove zoom state
+		var params = get_params();
+		if (params.x) delete params.x;
+		if (params.y) delete params.y;
+		history.replaceState(null, null, parse_params(params));
+	}
+
+	// search
+	function toggle_ignorecase() {
+		ignorecase = !ignorecase;
+		if (ignorecase) {
+			ignorecaseBtn.classList.add("show");
+		} else {
+			ignorecaseBtn.classList.remove("show");
+		}
+		reset_search();
+		search();
+	}
+	function reset_search() {
+		var el = document.querySelectorAll("#frames rect");
+		for (var i = 0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+		var params = get_params();
+		delete params.s;
+		history.replaceState(null, null, parse_params(params));
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)"
+			    + (ignorecase ? ", ignoring case" : "")
+			    + "\nPress Ctrl-i to toggle case sensitivity", "");
+			if (term != null) search(term);
+		} else {
+			reset_search();
+			searching = 0;
+			currentSearchTerm = null;
+			searchbtn.classList.remove("show");
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.classList.add("hide");
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		if (term) currentSearchTerm = term;
+		if (currentSearchTerm === null) return;
+
+		var re = new RegExp(currentSearchTerm, ignorecase ? 'i' : '');
+		var el = document.getElementById("frames").children;
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes.width.value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes.x.value);
+				orig_save(rect, "fill");
+				rect.attributes.fill.value = "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+		var params = get_params();
+		params.s = currentSearchTerm;
+		history.replaceState(null, null, parse_params(params));
+
+		searchbtn.classList.add("show");
+		searchbtn.firstChild.nodeValue = "Reset Search";
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.classList.remove("hide");
+		var pct = 100 * count / maxwidth;
+		if (pct != 100) pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1200.0" height="422.0" fill="url(#background)"  />
+<text id="title" x="600.00" y="24" >run_model CPU cycles</text>
+<text id="details" x="10.00" y="405" > </text>
+<text id="unzoom" x="10.00" y="24" class="hide">Reset Zoom</text>
+<text id="search" x="1090.00" y="24" >Search</text>
+<text id="ignorecase" x="1174.00" y="24" >ic</text>
+<text id="matched" x="1090.00" y="405" > </text>
+<g id="frames">
+<g >
+<title>void Eigen::internal::call_assignment_no_alias&lt;Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt;, Eigen::CwiseNullaryOp&lt;Eigen::internal::scalar_constant_op&lt;unsigned char&gt;, Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt; &gt;, Eigen::internal::assign_op&lt;unsigned char, unsigned char&gt; &gt; (124,999 cycles samples, 0.07%)</title><rect x="1180.0" y="149" width="0.8" height="15.0" fill="rgb(211,32,7)" rx="2" ry="2" />
+<text  x="1182.99" y="159.5" ></text>
+</g>
+<g >
+<title>dynein_cell_model::protrudeNuc (883,897 cycles samples, 0.48%)</title><rect x="1176.6" y="293" width="5.6" height="15.0" fill="rgb(236,144,34)" rx="2" ry="2" />
+<text  x="1179.57" y="303.5" ></text>
+</g>
+<g >
+<title>std::_Hashtable&lt;std::pair&lt;int, int&gt;, std::pair&lt;int, int&gt;, std::allocator&lt;std::pair&lt;int, int&gt; &gt;, std::__detail::_Identity, std::equal_to&lt;std::pair&lt;int, int&gt; &gt;, dynein_cell_model::(anonymous namespace)::pair_hash, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, true, true&gt; &gt;::_M_insert_unique_node (223,632 cycles samples, 0.12%)</title><rect x="1180.8" y="181" width="1.4" height="15.0" fill="rgb(224,87,20)" rx="2" ry="2" />
+<text  x="1183.79" y="191.5" ></text>
+</g>
+<g >
+<title>[[vdso]] (1,509,556 cycles samples, 0.82%)</title><rect x="1030.3" y="261" width="9.6" height="15.0" fill="rgb(218,60,14)" rx="2" ry="2" />
+<text  x="1033.27" y="271.5" ></text>
+</g>
+<g >
+<title>std::_Hashtable&lt;std::pair&lt;int, int&gt;, std::pair&lt;int, int&gt;, std::allocator&lt;std::pair&lt;int, int&gt; &gt;, std::__detail::_Identity, std::equal_to&lt;std::pair&lt;int, int&gt; &gt;, dynein_cell_model::(anonymous namespace)::pair_hash, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, true, true&gt; &gt;::_M_rehash_aux (223,632 cycles samples, 0.12%)</title><rect x="1180.8" y="149" width="1.4" height="15.0" fill="rgb(207,9,2)" rx="2" ry="2" />
+<text  x="1183.79" y="159.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_lock (2,395,116 cycles samples, 1.30%)</title><rect x="414.1" y="245" width="15.3" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="417.06" y="255.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (3,228,687 cycles samples, 1.75%)</title><rect x="486.8" y="245" width="20.7" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="489.80" y="255.5" ></text>
+</g>
+<g >
+<title>[unknown] (144,544 cycles samples, 0.08%)</title><rect x="1140.0" y="245" width="0.9" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="1143.01" y="255.5" ></text>
+</g>
+<g >
+<title>void std::__fill_a&lt;unsigned char*, unsigned char&gt; (124,999 cycles samples, 0.07%)</title><rect x="1180.0" y="69" width="0.8" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="1182.99" y="79.5" ></text>
+</g>
+<g >
+<title>Eigen::internal::scalar_max_op&lt;double, double, 0&gt;::operator (1,424,728 cycles samples, 0.77%)</title><rect x="1167.5" y="213" width="9.1" height="15.0" fill="rgb(214,43,10)" rx="2" ry="2" />
+<text  x="1170.45" y="223.5" ></text>
+</g>
+<g >
+<title>malloc (702,651 cycles samples, 0.38%)</title><rect x="961.6" y="245" width="4.5" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="964.62" y="255.5" ></text>
+</g>
+<g >
+<title>Eigen::internal::generic_dense_assignment_kernel&lt;Eigen::internal::evaluator&lt;Eigen::ArrayWrapper&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt; &gt; &gt;, Eigen::internal::evaluator&lt;Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; &gt;, Eigen::internal::add_assign_op&lt;double, double&gt;, 0&gt;::assignCoeff (585,817 cycles samples, 0.32%)</title><rect x="1182.2" y="165" width="3.8" height="15.0" fill="rgb(249,203,48)" rx="2" ry="2" />
+<text  x="1185.22" y="175.5" ></text>
+</g>
+<g >
+<title>[[vdso]] (811,533 cycles samples, 0.44%)</title><rect x="999.0" y="277" width="5.2" height="15.0" fill="rgb(218,60,14)" rx="2" ry="2" />
+<text  x="1001.99" y="287.5" ></text>
+</g>
+<g >
+<title>[libcuda.so.570.211.01] (30,853,126 cycles samples, 16.73%)</title><rect x="232.9" y="261" width="197.4" height="15.0" fill="rgb(208,18,4)" rx="2" ry="2" />
+<text  x="235.93" y="271.5" >[libcuda.so.570.211.01]</text>
+</g>
+<g >
+<title>fmaxf32x (1,424,728 cycles samples, 0.77%)</title><rect x="1167.5" y="133" width="9.1" height="15.0" fill="rgb(212,32,7)" rx="2" ry="2" />
+<text  x="1170.45" y="143.5" ></text>
+</g>
+<g >
+<title>[libgnutls.so.30.37.1] (702,651 cycles samples, 0.38%)</title><rect x="961.6" y="293" width="4.5" height="15.0" fill="rgb(254,229,54)" rx="2" ry="2" />
+<text  x="964.62" y="303.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_unlock (149,741 cycles samples, 0.08%)</title><rect x="429.4" y="245" width="0.9" height="15.0" fill="rgb(231,120,28)" rx="2" ry="2" />
+<text  x="432.38" y="255.5" ></text>
+</g>
+<g >
+<title>__poll (4,557,365 cycles samples, 2.47%)</title><rect x="430.3" y="261" width="29.2" height="15.0" fill="rgb(250,208,49)" rx="2" ry="2" />
+<text  x="433.34" y="271.5" >__..</text>
+</g>
+<g >
+<title>operator new (680,025 cycles samples, 0.37%)</title><rect x="970.9" y="165" width="4.4" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="973.92" y="175.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (395,500 cycles samples, 0.21%)</title><rect x="925.5" y="197" width="2.5" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="928.50" y="207.5" ></text>
+</g>
+<g >
+<title>Eigen::internal::binary_evaluator&lt;Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt;, Eigen::internal::IndexBased, Eigen::internal::IndexBased, double, double&gt;::coeff (585,817 cycles samples, 0.32%)</title><rect x="1182.2" y="133" width="3.8" height="15.0" fill="rgb(213,38,9)" rx="2" ry="2" />
+<text  x="1185.22" y="143.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (29,933,353 cycles samples, 16.23%)</title><rect x="975.3" y="341" width="191.5" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="978.28" y="351.5" >[libc.so.6]</text>
+</g>
+<g >
+<title>std::_Hashtable&lt;std::pair&lt;int, int&gt;, std::pair&lt;int, int&gt;, std::allocator&lt;std::pair&lt;int, int&gt; &gt;, std::__detail::_Identity, std::equal_to&lt;std::pair&lt;int, int&gt; &gt;, dynein_cell_model::(anonymous namespace)::pair_hash, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, true, true&gt; &gt;::_M_rehash (223,632 cycles samples, 0.12%)</title><rect x="1180.8" y="165" width="1.4" height="15.0" fill="rgb(228,107,25)" rx="2" ry="2" />
+<text  x="1183.79" y="175.5" ></text>
+</g>
+<g >
+<title>[unknown] (106,347 cycles samples, 0.06%)</title><rect x="960.9" y="197" width="0.7" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="963.94" y="207.5" ></text>
+</g>
+<g >
+<title>[libcuda.so.570.211.01] (14,917,986 cycles samples, 8.09%)</title><rect x="318.6" y="213" width="95.5" height="15.0" fill="rgb(208,18,4)" rx="2" ry="2" />
+<text  x="321.61" y="223.5" >[libcuda.so..</text>
+</g>
+<g >
+<title>Eigen::DenseBase&lt;Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt; &gt;::setConstant (124,999 cycles samples, 0.07%)</title><rect x="1180.0" y="229" width="0.8" height="15.0" fill="rgb(241,167,39)" rx="2" ry="2" />
+<text  x="1182.99" y="239.5" ></text>
+</g>
+<g >
+<title>[unknown] (102,146 cycles samples, 0.06%)</title><rect x="1166.8" y="293" width="0.7" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="1169.80" y="303.5" ></text>
+</g>
+<g >
+<title>Eigen::internal::Assignment&lt;Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt;, Eigen::CwiseNullaryOp&lt;Eigen::internal::scalar_constant_op&lt;unsigned char&gt;, Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt; &gt;, Eigen::internal::assign_op&lt;unsigned char, unsigned char&gt;, Eigen::internal::Dense2Dense, void&gt;::run (124,999 cycles samples, 0.07%)</title><rect x="1180.0" y="133" width="0.8" height="15.0" fill="rgb(218,64,15)" rx="2" ry="2" />
+<text  x="1182.99" y="143.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (29,933,353 cycles samples, 16.23%)</title><rect x="975.3" y="325" width="191.5" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="978.28" y="335.5" >[libc.so.6]</text>
+</g>
+<g >
+<title>run_model (100,017,160 cycles samples, 54.23%)</title><rect x="550.1" y="357" width="639.9" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="553.06" y="367.5" >run_model</text>
+</g>
+<g >
+<title>std::__detail::_Insert&lt;std::pair&lt;int, int&gt;, std::pair&lt;int, int&gt;, std::allocator&lt;std::pair&lt;int, int&gt; &gt;, std::__detail::_Identity, std::equal_to&lt;std::pair&lt;int, int&gt; &gt;, dynein_cell_model::(anonymous namespace)::pair_hash, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, true, true&gt;, true&gt;::insert (223,632 cycles samples, 0.12%)</title><rect x="1180.8" y="245" width="1.4" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="1183.79" y="255.5" ></text>
+</g>
+<g >
+<title>Eigen::DenseBase&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 1, -1, -1&gt;, -1, -1, false&gt; &gt;::maxCoeff (1,424,728 cycles samples, 0.77%)</title><rect x="1167.5" y="277" width="9.1" height="15.0" fill="rgb(212,35,8)" rx="2" ry="2" />
+<text  x="1170.45" y="287.5" ></text>
+</g>
+<g >
+<title>double Eigen::DenseBase&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 1, -1, -1&gt;, -1, -1, false&gt; &gt;::maxCoeff&lt;0&gt; (1,424,728 cycles samples, 0.77%)</title><rect x="1167.5" y="261" width="9.1" height="15.0" fill="rgb(205,3,0)" rx="2" ry="2" />
+<text  x="1170.45" y="271.5" ></text>
+</g>
+<g >
+<title>__vdso_gettimeofday (887,809 cycles samples, 0.48%)</title><rect x="1007.0" y="277" width="5.6" height="15.0" fill="rgb(222,81,19)" rx="2" ry="2" />
+<text  x="1009.96" y="287.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (1,682,516 cycles samples, 0.91%)</title><rect x="950.2" y="197" width="10.7" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="953.18" y="207.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (124,999 cycles samples, 0.07%)</title><rect x="1180.0" y="37" width="0.8" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1182.99" y="47.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_lock (1,061,393 cycles samples, 0.58%)</title><rect x="1142.1" y="277" width="6.7" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="1145.05" y="287.5" ></text>
+</g>
+<g >
+<title>[[vdso]] (2,761,569 cycles samples, 1.50%)</title><rect x="523.5" y="261" width="17.6" height="15.0" fill="rgb(218,60,14)" rx="2" ry="2" />
+<text  x="526.47" y="271.5" ></text>
+</g>
+<g >
+<title>Eigen::DenseCoeffsBase&lt;Eigen::Matrix&lt;int, -1, -1, 1, -1, -1&gt;, 1&gt;::operator (124,999 cycles samples, 0.07%)</title><rect x="1179.2" y="261" width="0.8" height="15.0" fill="rgb(207,11,2)" rx="2" ry="2" />
+<text  x="1182.19" y="271.5" ></text>
+</g>
+<g >
+<title>Eigen::DenseBase&lt;Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt; &gt;::setZero (124,999 cycles samples, 0.07%)</title><rect x="1180.0" y="245" width="0.8" height="15.0" fill="rgb(243,175,42)" rx="2" ry="2" />
+<text  x="1182.99" y="255.5" ></text>
+</g>
+<g >
+<title>Eigen::internal::Assignment&lt;Eigen::ArrayWrapper&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt; &gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt;, Eigen::internal::add_assign_op&lt;double, double&gt;, Eigen::internal::Dense2Dense, void&gt;::run (585,817 cycles samples, 0.32%)</title><rect x="1182.2" y="229" width="3.8" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="1185.22" y="239.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (4,258,418 cycles samples, 2.31%)</title><rect x="900.8" y="213" width="27.2" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="903.78" y="223.5" >[..</text>
+</g>
+<g >
+<title>Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt;&amp; Eigen::PlainObjectBase&lt;Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt; &gt;::_set&lt;Eigen::CwiseNullaryOp&lt;Eigen::internal::scalar_constant_op&lt;unsigned char&gt;, Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt; &gt; &gt; (124,999 cycles samples, 0.07%)</title><rect x="1180.0" y="197" width="0.8" height="15.0" fill="rgb(251,212,50)" rx="2" ry="2" />
+<text  x="1182.99" y="207.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (50,689,655 cycles samples, 27.49%)</title><rect x="603.7" y="261" width="324.3" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="606.70" y="271.5" >[ld-linux-x86-64.so.2]</text>
+</g>
+<g >
+<title>all (184,423,568 cycles samples, 100%)</title><rect x="10.0" y="373" width="1180.0" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="13.00" y="383.5" ></text>
+</g>
+<g >
+<title>double Eigen::DenseBase&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 1, -1, -1&gt;, -1, -1, false&gt; &gt;::redux&lt;Eigen::internal::scalar_max_op&lt;double, double, 0&gt; &gt; (1,424,728 cycles samples, 0.77%)</title><rect x="1167.5" y="245" width="9.1" height="15.0" fill="rgb(228,108,25)" rx="2" ry="2" />
+<text  x="1170.45" y="255.5" ></text>
+</g>
+<g >
+<title>Eigen::internal::dense_assignment_loop&lt;Eigen::internal::generic_dense_assignment_kernel&lt;Eigen::internal::evaluator&lt;Eigen::ArrayWrapper&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt; &gt; &gt;, Eigen::internal::evaluator&lt;Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; &gt;, Eigen::internal::add_assign_op&lt;double, double&gt;, 0&gt;, 0, 0&gt;::run (585,817 cycles samples, 0.32%)</title><rect x="1182.2" y="197" width="3.8" height="15.0" fill="rgb(209,22,5)" rx="2" ry="2" />
+<text  x="1185.22" y="207.5" ></text>
+</g>
+<g >
+<title>Eigen::internal::evaluator&lt;Eigen::PlainObjectBase&lt;Eigen::Matrix&lt;int, -1, -1, 1, -1, -1&gt; &gt; &gt;::coeffRef (124,999 cycles samples, 0.07%)</title><rect x="1179.2" y="229" width="0.8" height="15.0" fill="rgb(228,107,25)" rx="2" ry="2" />
+<text  x="1182.19" y="239.5" ></text>
+</g>
+<g >
+<title>dynein_cell_model::retractNuc (1,215,476 cycles samples, 0.66%)</title><rect x="1182.2" y="293" width="7.8" height="15.0" fill="rgb(213,38,9)" rx="2" ry="2" />
+<text  x="1185.22" y="303.5" ></text>
+</g>
+<g >
+<title>double Eigen::internal::pmax&lt;0, double&gt; (1,424,728 cycles samples, 0.77%)</title><rect x="1167.5" y="197" width="9.1" height="15.0" fill="rgb(221,74,17)" rx="2" ry="2" />
+<text  x="1170.45" y="207.5" ></text>
+</g>
+<g >
+<title>Eigen::internal::binary_evaluator&lt;Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt;, Eigen::internal::IndexBased, Eigen::internal::IndexBased, double, double&gt;::coeff (585,817 cycles samples, 0.32%)</title><rect x="1182.2" y="149" width="3.8" height="15.0" fill="rgb(218,63,15)" rx="2" ry="2" />
+<text  x="1185.22" y="159.5" ></text>
+</g>
+<g >
+<title>free@plt (472,421 cycles samples, 0.26%)</title><rect x="508.5" y="261" width="3.0" height="15.0" fill="rgb(229,112,26)" rx="2" ry="2" />
+<text  x="511.52" y="271.5" ></text>
+</g>
+<g >
+<title>clock_gettime (5,087,867 cycles samples, 2.76%)</title><rect x="514.4" y="277" width="32.5" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="517.37" y="287.5" >cl..</text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (7,991,543 cycles samples, 4.33%)</title><rect x="876.9" y="229" width="51.1" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="879.90" y="239.5" >[ld-l..</text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (64,323,586 cycles samples, 34.88%)</title><rect x="550.1" y="293" width="411.5" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="553.06" y="303.5" >[ld-linux-x86-64.so.2]</text>
+</g>
+<g >
+<title>[libcuda.so.570.211.01] (17,392,862 cycles samples, 9.43%)</title><rect x="302.8" y="245" width="111.3" height="15.0" fill="rgb(208,18,4)" rx="2" ry="2" />
+<text  x="305.78" y="255.5" >[libcuda.so.5..</text>
+</g>
+<g >
+<title>Eigen::internal::binary_evaluator&lt;Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt;, Eigen::internal::IndexBased, Eigen::internal::IndexBased, double, double&gt;::coeff (585,817 cycles samples, 0.32%)</title><rect x="1182.2" y="117" width="3.8" height="15.0" fill="rgb(207,13,3)" rx="2" ry="2" />
+<text  x="1185.22" y="127.5" ></text>
+</g>
+<g >
+<title>asn1_array2tree (702,651 cycles samples, 0.38%)</title><rect x="961.6" y="261" width="4.5" height="15.0" fill="rgb(231,123,29)" rx="2" ry="2" />
+<text  x="964.62" y="271.5" ></text>
+</g>
+<g >
+<title>osgeo::proj::metadata::Identifier::create (680,025 cycles samples, 0.37%)</title><rect x="970.9" y="181" width="4.4" height="15.0" fill="rgb(237,149,35)" rx="2" ry="2" />
+<text  x="973.92" y="191.5" ></text>
+</g>
+<g >
+<title>cfree (7,494,630 cycles samples, 4.06%)</title><rect x="459.5" y="261" width="48.0" height="15.0" fill="rgb(223,86,20)" rx="2" ry="2" />
+<text  x="462.50" y="271.5" >cfree</text>
+</g>
+<g >
+<title>double Eigen::internal::pminmax_impl&lt;0&gt;::run&lt;double, double  (1,424,728 cycles samples, 0.77%)</title><rect x="1167.5" y="181" width="9.1" height="15.0" fill="rgb(212,33,8)" rx="2" ry="2" />
+<text  x="1170.45" y="191.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (63,372,153 cycles samples, 34.36%)</title><rect x="556.1" y="277" width="405.5" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="559.15" y="287.5" >[ld-linux-x86-64.so.2]</text>
+</g>
+<g >
+<title>std::pair&lt;std::__detail::_Node_iterator&lt;std::pair&lt;int, int&gt;, true, true&gt;, bool&gt; std::_Hashtable&lt;std::pair&lt;int, int&gt;, std::pair&lt;int, int&gt;, std::allocator&lt;std::pair&lt;int, int&gt; &gt;, std::__detail::_Identity, std::equal_to&lt;std::pair&lt;int, int&gt; &gt;, dynein_cell_model::(anonymous namespace)::pair_hash, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, true, true&gt; &gt;::_M_insert&lt;std::pair&lt;int, int&gt;, std::__detail::_AllocNode&lt;std::allocator&lt;std::__detail::_Hash_node&lt;std::pair&lt;int, int&gt;, true&gt; &gt; &gt; &gt; (223,632 cycles samples, 0.12%)</title><rect x="1180.8" y="229" width="1.4" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="1183.79" y="239.5" ></text>
+</g>
+<g >
+<title>Eigen::internal::scalar_sum_op&lt;double, double&gt;::operator (585,817 cycles samples, 0.32%)</title><rect x="1182.2" y="101" width="3.8" height="15.0" fill="rgb(218,62,15)" rx="2" ry="2" />
+<text  x="1185.22" y="111.5" ></text>
+</g>
+<g >
+<title>double Eigen::internal::pmax&lt;double&gt; (1,424,728 cycles samples, 0.77%)</title><rect x="1167.5" y="165" width="9.1" height="15.0" fill="rgb(222,78,18)" rx="2" ry="2" />
+<text  x="1170.45" y="175.5" ></text>
+</g>
+<g >
+<title>[libproj.so.25.9.4.0] (680,025 cycles samples, 0.37%)</title><rect x="970.9" y="293" width="4.4" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="973.92" y="303.5" ></text>
+</g>
+<g >
+<title>double Eigen::numext::maxi&lt;double&gt; (1,424,728 cycles samples, 0.77%)</title><rect x="1167.5" y="149" width="9.1" height="15.0" fill="rgb(231,123,29)" rx="2" ry="2" />
+<text  x="1170.45" y="159.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (84,406,408 cycles samples, 45.77%)</title><rect x="10.0" y="325" width="540.1" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="13.00" y="335.5" >[libc.so.6]</text>
+</g>
+<g >
+<title>[libcuda.so.570.211.01] (29,933,353 cycles samples, 16.23%)</title><rect x="975.3" y="309" width="191.5" height="15.0" fill="rgb(208,18,4)" rx="2" ry="2" />
+<text  x="978.28" y="319.5" >[libcuda.so.570.211.01]</text>
+</g>
+<g >
+<title>pthread_cond_timedwait@plt (173,956 cycles samples, 0.09%)</title><rect x="1140.9" y="277" width="1.2" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="1143.94" y="287.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (4,296,347 cycles samples, 2.33%)</title><rect x="934.1" y="245" width="27.5" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="937.13" y="255.5" >[..</text>
+</g>
+<g >
+<title>[libcuda.so.570.211.01] (11,967,502 cycles samples, 6.49%)</title><rect x="337.5" y="197" width="76.6" height="15.0" fill="rgb(208,18,4)" rx="2" ry="2" />
+<text  x="340.49" y="207.5" >[libcuda..</text>
+</g>
+<g >
+<title>__vdso_clock_gettime (904,242 cycles samples, 0.49%)</title><rect x="541.1" y="261" width="5.8" height="15.0" fill="rgb(254,226,54)" rx="2" ry="2" />
+<text  x="544.14" y="271.5" ></text>
+</g>
+<g >
+<title>[libcuda.so.570.211.01] (67,042,664 cycles samples, 36.35%)</title><rect x="85.4" y="277" width="429.0" height="15.0" fill="rgb(208,18,4)" rx="2" ry="2" />
+<text  x="88.41" y="287.5" >[libcuda.so.570.211.01]</text>
+</g>
+<g >
+<title>dynein_cell_model::OutlineMask::clear (124,999 cycles samples, 0.07%)</title><rect x="1180.0" y="261" width="0.8" height="15.0" fill="rgb(238,152,36)" rx="2" ry="2" />
+<text  x="1182.99" y="271.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (1,509,288 cycles samples, 0.82%)</title><rect x="449.8" y="245" width="9.7" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="452.85" y="255.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_unlock (371,548 cycles samples, 0.20%)</title><rect x="547.7" y="277" width="2.4" height="15.0" fill="rgb(231,120,28)" rx="2" ry="2" />
+<text  x="550.68" y="287.5" ></text>
+</g>
+<g >
+<title>dynein_cell_model::step (3,524,101 cycles samples, 1.91%)</title><rect x="1167.5" y="309" width="22.5" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="1170.45" y="319.5" >d..</text>
+</g>
+<g >
+<title>dynein_cell_model::(anonymous namespace)::updateNuc (629,659 cycles samples, 0.34%)</title><rect x="1186.0" y="277" width="4.0" height="15.0" fill="rgb(225,93,22)" rx="2" ry="2" />
+<text  x="1188.97" y="287.5" ></text>
+</g>
+<g >
+<title>std::unordered_set&lt;std::pair&lt;int, int&gt;, dynein_cell_model::(anonymous namespace)::pair_hash, std::equal_to&lt;std::pair&lt;int, int&gt; &gt;, std::allocator&lt;std::pair&lt;int, int&gt; &gt; &gt;::insert (223,632 cycles samples, 0.12%)</title><rect x="1180.8" y="261" width="1.4" height="15.0" fill="rgb(211,29,7)" rx="2" ry="2" />
+<text  x="1183.79" y="271.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (84,406,408 cycles samples, 45.77%)</title><rect x="10.0" y="341" width="540.1" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="13.00" y="351.5" >[libc.so.6]</text>
+</g>
+<g >
+<title>[unknown] (124,999 cycles samples, 0.07%)</title><rect x="960.1" y="181" width="0.8" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="963.14" y="191.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (4,296,347 cycles samples, 2.33%)</title><rect x="934.1" y="229" width="27.5" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="937.13" y="239.5" >[..</text>
+</g>
+<g >
+<title>[libc.so.6] (7,478,476 cycles samples, 4.06%)</title><rect x="1093.1" y="261" width="47.8" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1096.09" y="271.5" >[lib..</text>
+</g>
+<g >
+<title>pthread_cond_timedwait (13,392,373 cycles samples, 7.26%)</title><rect x="1055.2" y="277" width="85.7" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="1058.25" y="287.5" >pthread_co..</text>
+</g>
+<g >
+<title>dynein_cell_model::protrudeCell (1,424,728 cycles samples, 0.77%)</title><rect x="1167.5" y="293" width="9.1" height="15.0" fill="rgb(205,0,0)" rx="2" ry="2" />
+<text  x="1170.45" y="303.5" ></text>
+</g>
+<g >
+<title>[libgnutls.so.30.37.1] (702,651 cycles samples, 0.38%)</title><rect x="961.6" y="277" width="4.5" height="15.0" fill="rgb(254,229,54)" rx="2" ry="2" />
+<text  x="964.62" y="287.5" ></text>
+</g>
+<g >
+<title>[libp11-kit.so.0.3.1] (751,298 cycles samples, 0.41%)</title><rect x="966.1" y="293" width="4.8" height="15.0" fill="rgb(245,184,44)" rx="2" ry="2" />
+<text  x="969.12" y="303.5" ></text>
+</g>
+<g >
+<title>void Eigen::internal::call_assignment&lt;Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt;, Eigen::CwiseNullaryOp&lt;Eigen::internal::scalar_constant_op&lt;unsigned char&gt;, Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt; &gt;, Eigen::internal::assign_op&lt;unsigned char, unsigned char&gt; &gt; (124,999 cycles samples, 0.07%)</title><rect x="1180.0" y="165" width="0.8" height="15.0" fill="rgb(239,156,37)" rx="2" ry="2" />
+<text  x="1182.99" y="175.5" ></text>
+</g>
+<g >
+<title>void Eigen::internal::call_assignment_no_alias&lt;Eigen::ArrayWrapper&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt; &gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt;, Eigen::internal::add_assign_op&lt;double, double&gt; &gt; (585,817 cycles samples, 0.32%)</title><rect x="1182.2" y="245" width="3.8" height="15.0" fill="rgb(252,219,52)" rx="2" ry="2" />
+<text  x="1185.22" y="255.5" ></text>
+</g>
+<g >
+<title>dynein_cell_model::(anonymous namespace)::updateNuc (883,897 cycles samples, 0.48%)</title><rect x="1176.6" y="277" width="5.6" height="15.0" fill="rgb(225,93,22)" rx="2" ry="2" />
+<text  x="1179.57" y="287.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (340,852 cycles samples, 0.18%)</title><rect x="1158.9" y="261" width="2.2" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1161.88" y="271.5" ></text>
+</g>
+<g >
+<title>void Eigen::internal::call_assignment&lt;Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt;, Eigen::CwiseNullaryOp&lt;Eigen::internal::scalar_constant_op&lt;unsigned char&gt;, Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt; &gt; &gt; (124,999 cycles samples, 0.07%)</title><rect x="1180.0" y="181" width="0.8" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="1182.99" y="191.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (3,729,794 cycles samples, 2.02%)</title><rect x="937.8" y="213" width="23.8" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="940.76" y="223.5" >[..</text>
+</g>
+<g >
+<title>[unknown] (953,985 cycles samples, 0.52%)</title><rect x="928.0" y="261" width="6.1" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="931.03" y="271.5" ></text>
+</g>
+<g >
+<title>clock_gettime (166,499 cycles samples, 0.09%)</title><rect x="507.5" y="261" width="1.0" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="510.46" y="271.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_lock (441,949 cycles samples, 0.24%)</title><rect x="511.5" y="261" width="2.9" height="15.0" fill="rgb(247,196,46)" rx="2" ry="2" />
+<text  x="514.54" y="271.5" ></text>
+</g>
+<g >
+<title>__gnu_cxx::__enable_if&lt;std::__is_byte&lt;unsigned char&gt;::__value, void&gt;::__type std::__fill_a1&lt;unsigned char&gt; (124,999 cycles samples, 0.07%)</title><rect x="1180.0" y="53" width="0.8" height="15.0" fill="rgb(222,82,19)" rx="2" ry="2" />
+<text  x="1182.99" y="63.5" ></text>
+</g>
+<g >
+<title>[libcuda.so.570.211.01] (15,916,635 cycles samples, 8.63%)</title><rect x="312.2" y="229" width="101.9" height="15.0" fill="rgb(208,18,4)" rx="2" ry="2" />
+<text  x="315.22" y="239.5" >[libcuda.so...</text>
+</g>
+<g >
+<title>std::pair&lt;std::__detail::_Node_iterator&lt;std::pair&lt;int, int&gt;, true, true&gt;, bool&gt; std::_Hashtable&lt;std::pair&lt;int, int&gt;, std::pair&lt;int, int&gt;, std::allocator&lt;std::pair&lt;int, int&gt; &gt;, std::__detail::_Identity, std::equal_to&lt;std::pair&lt;int, int&gt; &gt;, dynein_cell_model::(anonymous namespace)::pair_hash, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, true, true&gt; &gt;::_M_insert_unique&lt;std::pair&lt;int, int&gt;, std::pair&lt;int, int&gt;, std::__detail::_AllocNode&lt;std::allocator&lt;std::__detail::_Hash_node&lt;std::pair&lt;int, int&gt;, true&gt; &gt; &gt; &gt; (223,632 cycles samples, 0.12%)</title><rect x="1180.8" y="197" width="1.4" height="15.0" fill="rgb(234,137,32)" rx="2" ry="2" />
+<text  x="1183.79" y="207.5" ></text>
+</g>
+<g >
+<title>[libp11-kit.so.0.3.1] (751,298 cycles samples, 0.41%)</title><rect x="966.1" y="277" width="4.8" height="15.0" fill="rgb(245,184,44)" rx="2" ry="2" />
+<text  x="969.12" y="287.5" ></text>
+</g>
+<g >
+<title>void Eigen::internal::call_dense_assignment_loop&lt;Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt; &gt; (124,999 cycles samples, 0.07%)</title><rect x="1180.0" y="117" width="0.8" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="1182.99" y="127.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (66,457,560 cycles samples, 36.04%)</title><rect x="550.1" y="309" width="425.2" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="553.06" y="319.5" >[ld-linux-x86-64.so.2]</text>
+</g>
+<g >
+<title>[libcuda.so.570.211.01] (29,933,353 cycles samples, 16.23%)</title><rect x="975.3" y="293" width="191.5" height="15.0" fill="rgb(208,18,4)" rx="2" ry="2" />
+<text  x="978.28" y="303.5" >[libcuda.so.570.211.01]</text>
+</g>
+<g >
+<title>__vdso_clock_gettime (2,084,521 cycles samples, 1.13%)</title><rect x="1039.9" y="261" width="13.4" height="15.0" fill="rgb(254,226,54)" rx="2" ry="2" />
+<text  x="1042.93" y="271.5" ></text>
+</g>
+<g >
+<title>clock_gettime (6,349,417 cycles samples, 3.44%)</title><rect x="1012.6" y="277" width="40.7" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="1015.65" y="287.5" >clo..</text>
+</g>
+<g >
+<title>[libproj.so.25.9.4.0] (680,025 cycles samples, 0.37%)</title><rect x="970.9" y="245" width="4.4" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="973.92" y="255.5" ></text>
+</g>
+<g >
+<title>unsigned char* std::__fill_n_a&lt;unsigned char*, long, unsigned char&gt; (124,999 cycles samples, 0.07%)</title><rect x="1180.0" y="85" width="0.8" height="15.0" fill="rgb(212,33,7)" rx="2" ry="2" />
+<text  x="1182.99" y="95.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (45,629,914 cycles samples, 24.74%)</title><rect x="636.1" y="245" width="291.9" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="639.07" y="255.5" >[ld-linux-x86-64.so.2]</text>
+</g>
+<g >
+<title>gettimeofday@plt (309,281 cycles samples, 0.17%)</title><rect x="1053.3" y="277" width="1.9" height="15.0" fill="rgb(248,197,47)" rx="2" ry="2" />
+<text  x="1056.27" y="287.5" ></text>
+</g>
+<g >
+<title>[libcurl.so.4.8.0] (102,146 cycles samples, 0.06%)</title><rect x="1166.8" y="325" width="0.7" height="15.0" fill="rgb(230,115,27)" rx="2" ry="2" />
+<text  x="1169.80" y="335.5" ></text>
+</g>
+<g >
+<title>clock_gettime@plt (118,245 cycles samples, 0.06%)</title><rect x="546.9" y="277" width="0.8" height="15.0" fill="rgb(229,112,27)" rx="2" ry="2" />
+<text  x="549.92" y="287.5" ></text>
+</g>
+<g >
+<title>std::pair&lt;std::__detail::_Node_iterator&lt;std::pair&lt;int, int&gt;, true, true&gt;, bool&gt; std::_Hashtable&lt;std::pair&lt;int, int&gt;, std::pair&lt;int, int&gt;, std::allocator&lt;std::pair&lt;int, int&gt; &gt;, std::__detail::_Identity, std::equal_to&lt;std::pair&lt;int, int&gt; &gt;, dynein_cell_model::(anonymous namespace)::pair_hash, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits&lt;true, true, true&gt; &gt;::_M_insert_unique_aux&lt;std::pair&lt;int, int&gt;, std::__detail::_AllocNode&lt;std::allocator&lt;std::__detail::_Hash_node&lt;std::pair&lt;int, int&gt;, true&gt; &gt; &gt; &gt; (223,632 cycles samples, 0.12%)</title><rect x="1180.8" y="213" width="1.4" height="15.0" fill="rgb(212,33,8)" rx="2" ry="2" />
+<text  x="1183.79" y="223.5" ></text>
+</g>
+<g >
+<title>getenv (751,298 cycles samples, 0.41%)</title><rect x="966.1" y="261" width="4.8" height="15.0" fill="rgb(221,73,17)" rx="2" ry="2" />
+<text  x="969.12" y="271.5" ></text>
+</g>
+<g >
+<title>[libcuda.so.570.211.01] (84,406,408 cycles samples, 45.77%)</title><rect x="10.0" y="309" width="540.1" height="15.0" fill="rgb(208,18,4)" rx="2" ry="2" />
+<text  x="13.00" y="319.5" >[libcuda.so.570.211.01]</text>
+</g>
+<g >
+<title>pthread_mutex_unlock (1,909,779 cycles samples, 1.04%)</title><rect x="1148.8" y="277" width="12.3" height="15.0" fill="rgb(231,120,28)" rx="2" ry="2" />
+<text  x="1151.84" y="287.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (66,457,560 cycles samples, 36.04%)</title><rect x="550.1" y="341" width="425.2" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="553.06" y="351.5" >[ld-linux-x86-64.so.2]</text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (102,146 cycles samples, 0.06%)</title><rect x="1166.8" y="309" width="0.7" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="1169.80" y="319.5" ></text>
+</g>
+<g >
+<title>double Eigen::internal::redux_impl&lt;Eigen::internal::scalar_max_op&lt;double, double, 0&gt;, Eigen::internal::redux_evaluator&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 1, -1, -1&gt;, -1, -1, false&gt; &gt;, 0, 0&gt;::run&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 1, -1, -1&gt;, -1, -1, false&gt; &gt; (1,424,728 cycles samples, 0.77%)</title><rect x="1167.5" y="229" width="9.1" height="15.0" fill="rgb(212,33,7)" rx="2" ry="2" />
+<text  x="1170.45" y="239.5" ></text>
+</g>
+<g >
+<title>unsigned char* std::fill_n&lt;unsigned char*, long, unsigned char&gt; (124,999 cycles samples, 0.07%)</title><rect x="1180.0" y="101" width="0.8" height="15.0" fill="rgb(229,114,27)" rx="2" ry="2" />
+<text  x="1182.99" y="111.5" ></text>
+</g>
+<g >
+<title>[libproj.so.25.9.4.0] (680,025 cycles samples, 0.37%)</title><rect x="970.9" y="277" width="4.4" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="973.92" y="287.5" ></text>
+</g>
+<g >
+<title>_dl_catch_exception (4,296,347 cycles samples, 2.33%)</title><rect x="934.1" y="261" width="27.5" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="937.13" y="271.5" >_..</text>
+</g>
+<g >
+<title>osgeo::proj::cs::CoordinateSystemAxis::create (680,025 cycles samples, 0.37%)</title><rect x="970.9" y="229" width="4.4" height="15.0" fill="rgb(220,73,17)" rx="2" ry="2" />
+<text  x="973.92" y="239.5" ></text>
+</g>
+<g >
+<title>void Eigen::internal::call_dense_assignment_loop&lt;Eigen::ArrayWrapper&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt; &gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt;, Eigen::internal::add_assign_op&lt;double, double&gt; &gt; (585,817 cycles samples, 0.32%)</title><rect x="1182.2" y="213" width="3.8" height="15.0" fill="rgb(242,173,41)" rx="2" ry="2" />
+<text  x="1185.22" y="223.5" ></text>
+</g>
+<g >
+<title>[libproj.so.25.9.4.0] (680,025 cycles samples, 0.37%)</title><rect x="970.9" y="213" width="4.4" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="973.92" y="223.5" ></text>
+</g>
+<g >
+<title>Eigen::ArrayWrapper&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt; &gt;&amp; Eigen::ArrayBase&lt;Eigen::ArrayWrapper&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt; &gt; &gt;::operator+=&lt;Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; &gt; (585,817 cycles samples, 0.32%)</title><rect x="1182.2" y="277" width="3.8" height="15.0" fill="rgb(207,9,2)" rx="2" ry="2" />
+<text  x="1185.22" y="287.5" ></text>
+</g>
+<g >
+<title>Eigen::DenseCoeffsBase&lt;Eigen::Matrix&lt;int, -1, -1, 1, -1, -1&gt;, 1&gt;::coeffRef (124,999 cycles samples, 0.07%)</title><rect x="1179.2" y="245" width="0.8" height="15.0" fill="rgb(248,199,47)" rx="2" ry="2" />
+<text  x="1182.19" y="255.5" ></text>
+</g>
+<g >
+<title>void Eigen::internal::call_assignment&lt;Eigen::ArrayWrapper&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt; &gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt;, Eigen::internal::add_assign_op&lt;double, double&gt; &gt; (585,817 cycles samples, 0.32%)</title><rect x="1182.2" y="261" width="3.8" height="15.0" fill="rgb(229,114,27)" rx="2" ry="2" />
+<text  x="1185.22" y="271.5" ></text>
+</g>
+<g >
+<title>malloc@plt (680,025 cycles samples, 0.37%)</title><rect x="970.9" y="149" width="4.4" height="15.0" fill="rgb(246,192,46)" rx="2" ry="2" />
+<text  x="973.92" y="159.5" ></text>
+</g>
+<g >
+<title>[libcuda.so.570.211.01] (84,406,408 cycles samples, 45.77%)</title><rect x="10.0" y="293" width="540.1" height="15.0" fill="rgb(208,18,4)" rx="2" ry="2" />
+<text  x="13.00" y="303.5" >[libcuda.so.570.211.01]</text>
+</g>
+<g >
+<title>cuda-EvtHandlr (84,406,408 cycles samples, 45.77%)</title><rect x="10.0" y="357" width="540.1" height="15.0" fill="rgb(215,46,11)" rx="2" ry="2" />
+<text  x="13.00" y="367.5" >cuda-EvtHandlr</text>
+</g>
+<g >
+<title>Eigen::internal::generic_dense_assignment_kernel&lt;Eigen::internal::evaluator&lt;Eigen::ArrayWrapper&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt; &gt; &gt;, Eigen::internal::evaluator&lt;Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::CwiseBinaryOp&lt;Eigen::internal::scalar_sum_op&lt;double, double&gt;, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; const, Eigen::ArrayWrapper&lt;Eigen::Block&lt;Eigen::Matrix&lt;double, -1, -1, 0, -1, -1&gt;, -1, -1, false&gt; &gt; const&gt; &gt;, Eigen::internal::add_assign_op&lt;double, double&gt;, 0&gt;::assignCoeffByOuterInner (585,817 cycles samples, 0.32%)</title><rect x="1182.2" y="181" width="3.8" height="15.0" fill="rgb(205,1,0)" rx="2" ry="2" />
+<text  x="1185.22" y="191.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (2,333,996 cycles samples, 1.27%)</title><rect x="1125.1" y="245" width="14.9" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1128.08" y="255.5" ></text>
+</g>
+<g >
+<title>[ld-linux-x86-64.so.2] (66,457,560 cycles samples, 36.04%)</title><rect x="550.1" y="325" width="425.2" height="15.0" fill="rgb(243,178,42)" rx="2" ry="2" />
+<text  x="553.06" y="335.5" >[ld-linux-x86-64.so.2]</text>
+</g>
+<g >
+<title>Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt;&amp; Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt;::operator=&lt;Eigen::CwiseNullaryOp&lt;Eigen::internal::scalar_constant_op&lt;unsigned char&gt;, Eigen::Matrix&lt;unsigned char, -1, -1, 1, -1, -1&gt; &gt; &gt; (124,999 cycles samples, 0.07%)</title><rect x="1180.0" y="213" width="0.8" height="15.0" fill="rgb(250,211,50)" rx="2" ry="2" />
+<text  x="1182.99" y="223.5" ></text>
+</g>
+<g >
+<title>[libcuda.so.570.211.01] (434,745 cycles samples, 0.24%)</title><rect x="1004.2" y="277" width="2.8" height="15.0" fill="rgb(208,18,4)" rx="2" ry="2" />
+<text  x="1007.18" y="287.5" ></text>
+</g>
+<g >
+<title>[unknown] (3,626,247 cycles samples, 1.97%)</title><rect x="1166.8" y="341" width="23.2" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="1169.80" y="351.5" >[..</text>
+</g>
+<g >
+<title>osgeo::proj::cs::EllipsoidalCS::createLongitudeLatitude (680,025 cycles samples, 0.37%)</title><rect x="970.9" y="261" width="4.4" height="15.0" fill="rgb(235,140,33)" rx="2" ry="2" />
+<text  x="973.92" y="271.5" ></text>
+</g>
+<g >
+<title>pthread_mutex_unlock@plt (896,545 cycles samples, 0.49%)</title><rect x="1161.1" y="277" width="5.7" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="1164.06" y="287.5" ></text>
+</g>
+<g >
+<title>main (3,524,101 cycles samples, 1.91%)</title><rect x="1167.5" y="325" width="22.5" height="15.0" fill="rgb(243,179,42)" rx="2" ry="2" />
+<text  x="1170.45" y="335.5" >m..</text>
+</g>
+<g >
+<title>osgeo::proj::common::IdentifiedObject::IdentifiedObject (680,025 cycles samples, 0.37%)</title><rect x="970.9" y="197" width="4.4" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="973.92" y="207.5" ></text>
+</g>
+</g>
+</svg>

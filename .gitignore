@@ -16,3 +16,4 @@ build*
 
 **/results.h5
 .DS_Store
+perf.data
