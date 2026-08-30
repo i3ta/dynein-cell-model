@@ -1,5 +1,5 @@
 k: 1.6
-k_nuc: 4
+k_nuc: 2
 g: 2
 T: 500
 T_nuc: 1
@@ -8,9 +8,9 @@ adh_sigma: 5
 adh_basal: 0.3
 adh_frac: 0.03
 adh_num: 50
-R0: 20
-R_nuc: 1
-dyn_basal: 0.9
+R0: 13
+R_nuc: 2
+dyn_basal: 0.6
 prop_factor: 1
 dyn_sigma: 8.487316131591797
 dyn_scale: 0.5902834534645081

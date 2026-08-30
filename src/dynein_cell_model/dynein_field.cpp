@@ -25,6 +25,15 @@ void gaussianBlur(ViewD &field, int r0, int r1, int c0, int c1, double sigma) {
 // Kept implementation-private: it is an orchestration detail of step().
 void updateDynNucField(CellState &state) {
   const auto &config = state.config;
+  // Nucleus protrusion samples dynF on outlineNuc, which is one pixel outside
+  // the current nucleus bounds.  Build the field on that halo as well, so a
+  // force is available for every candidate rather than only for candidates
+  // that happen to lie inside the current bounding box.
+  const int forceMinR = std::max(0, state.nucMinR - 1);
+  const int forceMaxR = std::min(config.simRows - 1, state.nucMaxR + 1);
+  const int forceMinC = std::max(0, state.nucMinC - 1);
+  const int forceMaxC = std::min(config.simCols - 1, state.nucMaxC + 1);
+
   state.dynF.setZero();
   ViewI parent = ViewI::Constant(config.simRows, config.simCols, -1);
   ViewI scaling = ViewI::Zero(config.simRows, config.simCols);
@@ -48,8 +57,8 @@ void updateDynNucField(CellState &state) {
     const int p = parent(it->first, it->second);
     if (p >= 0) { const int r = p / config.simCols, c = p % config.simCols; state.dynF(r, c) += state.dynF(it->first, it->second); scaling(r, c) += scaling(it->first, it->second); }
   }
-  for (int r = state.nucMinR; r <= state.nucMaxR; ++r) for (int c = state.nucMinC; c <= state.nucMaxC; ++c)
+  for (int r = forceMinR; r <= forceMaxR; ++r) for (int c = forceMinC; c <= forceMaxC; ++c)
     state.dynF(r, c) = scaling(r, c) ? state.dynF(r, c) / scaling(r, c) * config.dynScale : 0;
-  gaussianBlur(state.dynF, state.nucMinR, state.nucMaxR, state.nucMinC, state.nucMaxC, config.dynSigma);
+  gaussianBlur(state.dynF, forceMinR, forceMaxR, forceMinC, forceMaxC, config.dynSigma);
 }
 } // namespace dynein_cell_model
