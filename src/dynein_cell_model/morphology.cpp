@@ -504,6 +504,13 @@ void protrudeNuc(CellState &state) {
     if (state.probDist(state.rng) < w) {
       state.nuc(r, c) = 1;
 
+      // Keep the tracked bounds in step with outward growth. updateNuc()
+      // scans only these bounds plus one pixel when rebuilding candidates.
+      state.nucMinR = std::min(state.nucMinR, r);
+      state.nucMaxR = std::max(state.nucMaxR, r);
+      state.nucMinC = std::min(state.nucMinC, c);
+      state.nucMaxC = std::max(state.nucMaxC, c);
+
       state.ACCorSum -= state.AC(r, c);
       state.AC(r, c) = 0;
       state.ICCorSum -= state.IC(r, c);
@@ -566,6 +573,7 @@ void retractNuc(CellState &state) {
   std::vector<std::pair<int, int>> retractCoords =
       state.innerOutlineNuc.shuffled(state.rng);
 
+  bool recheckBounds = false;
   for (auto &[r, c] : retractCoords) {
     uint8_t conf = encodeAdj(state.nuc, r, c);
     if (!retractConf[conf])
@@ -583,6 +591,10 @@ void retractNuc(CellState &state) {
     if (state.probDist(state.rng) < w) {
       state.nuc(r, c) = 0;
 
+      if (r == state.nucMinR || r == state.nucMaxR || c == state.nucMinC ||
+          c == state.nucMaxC)
+        recheckBounds = true;
+
       // count number of neighbors and sum up values
       int n = 9 - state.nuc.block<3, 3>(r - 1, c - 1)
                       .sum(); // number of cell pixels (non-nucleus)
@@ -598,7 +610,7 @@ void retractNuc(CellState &state) {
     }
   }
 
-  updateNuc(state);
+  updateNuc(state, recheckBounds);
 }
 
 [[deprecated]]

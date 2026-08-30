@@ -16,7 +16,11 @@ void step(CellState &state) {
   if (state.t % conf.frT == 0)
     updateFrame(state);
 
+  // Use a field derived from the current nucleus for protrusion, then refresh
+  // it after the boundary changes so retraction does not use stale geometry.
+  updateDynNucField(state);
   protrudeNuc(state);
+  updateDynNucField(state);
   retractNuc(state);
 
   protrudeCell(state);
@@ -24,7 +28,6 @@ void step(CellState &state) {
 
   correctConcentrations(state);
   diffuseK0Adh(state);
-  updateDynNucField(state);
 
   if (++state.t % conf.saveT == 0 && state.output)
     saveState(state);
