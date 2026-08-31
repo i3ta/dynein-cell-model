@@ -87,8 +87,7 @@ void updateDynNucField(CellState &state) {
   for (size_t head = 0; head < order.size(); ++head) {
     const auto [r, c] = order[head];
     if (state.innerOutline.contains(r, c)) {
-      state.dynF(r, c) =
-          distance[head] * std::max(state.AC(r, c) - 0.1, 0.0);
+      state.dynF(r, c) = distance[head] * std::max(state.AC(r, c) - 0.1, 0.0);
       scaling(r, c) = 1;
     }
     for (int n = 0; n < 4; ++n) {
@@ -118,5 +117,9 @@ void updateDynNucField(CellState &state) {
                         : 0;
   gaussianBlur(state.dynF, blurMinR, blurMaxR, blurMinC, blurMaxC,
                config.dynSigma);
+
+  for (int r = blurMinR; r <= blurMaxR; ++r)
+    for (int c = blurMinC; c <= blurMaxC; ++c)
+      state.dynF(r, c) = std::clamp(state.dynF(r, c), 0.0, 1.0);
 }
 } // namespace dynein_cell_model
