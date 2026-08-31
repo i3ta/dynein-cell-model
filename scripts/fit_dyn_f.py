@@ -1,4 +1,5 @@
 import sys
+from collections import deque
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -95,12 +96,14 @@ def generate_dyn_field_old(
 
 def preprocess_bfs(
     cell: npt.NDArray[np.bool],
+    nuc: npt.NDArray[np.bool],
     cell_inner_outline: npt.NDArray[np.bool],
     nuc_inner_outline: npt.NDArray[np.bool],
     AC: npt.NDArray[np.float32],
 ) -> npt.NDArray[np.float32]:
-    DR = [-1, 0, 1, 0]
-    DC = [0, -1, 0, 1]
+    # Match the C++ BFS order so equal-distance parent choices agree.
+    DR = [1, -1, 0, 0]
+    DC = [0, 0, 1, -1]
 
     sim_rows, sim_cols = cell.shape
     dyn_f = np.zeros_like(AC, dtype=np.float32)
@@ -111,11 +114,11 @@ def preprocess_bfs(
     rev = []
     backtrack = {}
 
-    queue = list(np.argwhere(nuc_inner_outline))
+    queue = deque(map(tuple, np.argwhere(nuc_inner_outline)))
     dist[nuc_inner_outline] = 0.0
 
-    while len(queue) > 0:
-        r, c = queue.pop(0)
+    while queue:
+        r, c = queue.popleft()
         rev.append((r, c))
         for dr, dc in zip(DR, DC):
             nr, nc = r + dr, c + dc
@@ -123,19 +126,22 @@ def preprocess_bfs(
                 0 <= nr < sim_rows
                 and 0 <= nc < sim_cols
                 and cell[nr, nc]
+                and not nuc[nr, nc]
                 and not visited[nr, nc]
             ):
                 visited[nr, nc] = True
                 backtrack[(nr, nc)] = (r, c)
                 dist[nr, nc] = dist[r, c] + 1.0
                 queue.append((nr, nc))
-        if cell_inner_outline[r, c] and AC[r, c] > 0.1:
-            dyn_f[r, c] = (AC[r, c] - 0.1) * dist[r, c]
+        # Match updateDynNucField: every cell-boundary pixel participates in
+        # the average, including those whose AC is at or below the threshold.
+        # Those pixels contribute zero force but still contribute one count to
+        # the denominator when values are propagated back to the nucleus.
+        if cell_inner_outline[r, c]:
+            dyn_f[r, c] = max(AC[r, c] - 0.1, 0.0) * dist[r, c]
             scaling[r, c] = 1
 
     for r, c in reversed(rev):
-        if dyn_f[r, c] == 0:
-            continue
         parent = backtrack.get((r, c))
         if parent is not None:
             dyn_f[parent] += dyn_f[r, c]
@@ -222,16 +228,25 @@ def fit_model(data_path: str, epochs: int = 20):
 
     print("Generating BFS samples...")
     dyn_f_pre = []
-    for _ in tqdm(range(samples)):
+    for i in tqdm(range(samples)):
         dyn_f_pre.append(
             preprocess_bfs(
-                dset_cell[i], cell_inner_outline[i], nuc_inner_outline[i], dset_AC[i]
+                dset_cell[i],
+                dset_nuc[i],
+                cell_inner_outline[i],
+                nuc_inner_outline[i],
+                dset_AC[i],
             )
         )
     dyn_f_pre = torch.tensor(np.array(dyn_f_pre), dtype=torch.float32)
 
-    # Set device to MPS if available
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    # Prefer the available accelerator, falling back to CPU.
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
     print(f"Using device: {device}")
 
     # Move tensors to device
