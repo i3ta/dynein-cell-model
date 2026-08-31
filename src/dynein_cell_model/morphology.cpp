@@ -596,8 +596,8 @@ void retractNuc(CellState &state) {
         recheckBounds = true;
 
       // count number of neighbors and sum up values
-      int n = 9 - state.nuc.block<3, 3>(r - 1, c - 1)
-                      .sum(); // number of cell pixels (non-nucleus)
+      int n = 8 - state.nuc.block<3, 3>(r - 1, c - 1)
+                      .sum(); // number of neighboring cytosol pixels
       double AC = state.AC.block<3, 3>(r - 1, c - 1).sum();
       double FC = state.FC.block<3, 3>(r - 1, c - 1).sum();
       double IC = state.IC.block<3, 3>(r - 1, c - 1).sum();

@@ -10,7 +10,7 @@ adh_frac: 0.03
 adh_num: 50
 R0: 20
 R_nuc: 1
-dyn_basal: 0.6
+dyn_basal: 0.9
 prop_factor: 1
 dyn_sigma: 8.487316131591797
 dyn_scale: 0.5902834534645081
