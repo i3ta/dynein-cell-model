@@ -79,8 +79,8 @@ def generate_dyn_field_old(
         min_r, min_c = nuc_outline_coords[np.argmin(dist2)]
         dist_f = np.sqrt(np.min(dist2)) * (AC[row, col] - 0.1)
 
-        for r in range(min_r - n, min_r + n):
-            for c in range(min_c - n, min_c + n):
+        for r in range(max(0, min_r - n), min(AC.shape[0] - 1, min_r + n) + 1):
+            for c in range(max(0, min_c - n), min(AC.shape[1] - 1, min_c + n) + 1):
                 if nuc_outline[r, c]:
                     dyn_f[r, c] += dist_f
                     scaling[r, c] += 1
@@ -158,23 +158,37 @@ class DynFieldModel(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.dyn_sigma = nn.Parameter(torch.tensor(8.5))
         self.scale_factor = nn.Parameter(torch.tensor(0.55))
 
-    def forward(self, dyn_f_raw, mode="protrude"):
+    @staticmethod
+    def _box_blur(dyn_f_raw, radii):
+        """Apply the deprecated model's per-frame square-patch footprint."""
+        result = torch.empty_like(dyn_f_raw)
+        for radius in torch.unique(radii).tolist():
+            indices = torch.nonzero(radii == radius, as_tuple=True)[0]
+            values = dyn_f_raw.index_select(0, indices).unsqueeze(1)
+            if radius == 0:
+                blurred = values
+            else:
+                # Candidate pixels are at least ``radius`` pixels inside the
+                # C++ workspace.  Average pooling therefore reproduces the
+                # normalized separable box filter at all fitted pixels.
+                blurred = F.avg_pool2d(
+                    values, kernel_size=2 * radius + 1, stride=1, padding=radius
+                )
+            result.index_copy_(0, indices, blurred.squeeze(1))
+        return result
+
+    def forward(self, dyn_f_raw, radii, mode="protrude"):
         """
         Args:
             dyn_f_raw: (batch, rows, cols) - precomputed BFS values, centered
+            radii: (batch,) - old-model square-patch half-width for each frame
             mode: 'protrude' or 'retract'
         Returns:
-            pred: (batch, rows, cols) - normalized and smoothed dyn_f values
+            pred: (batch, rows, cols) - normalized and spread dyn_f values
         """
-        kernel = self._gaussian_kernel()
-        dyn_f = F.conv2d(
-            dyn_f_raw.unsqueeze(1),
-            kernel.repeat(1, 1, 1, 1),
-            padding=self.kernel_size // 2,
-        ).squeeze(1)
+        dyn_f = self._box_blur(dyn_f_raw, radii)
         dyn_f = dyn_f * self.scale_factor
         # Match updateDynNucField: the final, smoothed force is bounded before
         # it is used for either protrusion or the 1 - dyn_f retraction rule.
@@ -184,25 +198,6 @@ class DynFieldModel(nn.Module):
             dyn_f = 1.0 - dyn_f
 
         return dyn_f
-
-    def _gaussian_kernel(self):
-        sigma = torch.abs(self.dyn_sigma)
-        size = 2 * int(3 * sigma.item()) + 1
-        if size % 2 == 0:
-            size += 1
-        size = max(3, size)
-
-        device = next(self.parameters()).device
-
-        ax = torch.arange(size, dtype=torch.float32, device=device) - size // 2
-        xx, yy = torch.meshgrid(ax, ax, indexing="ij")
-        kernel = torch.exp(-(xx**2 + yy**2) / (2 * sigma**2))
-        kernel = kernel / kernel.sum()
-
-        self.kernel_size = size
-        return kernel.unsqueeze(0).unsqueeze(0)
-
-
 def fit_model(data_path: str, epochs: int = 20):
     # Load data
     print("Loading data...")
@@ -242,6 +237,12 @@ def fit_model(data_path: str, epochs: int = 20):
             )
         )
     dyn_f_pre = torch.tensor(np.array(dyn_f_pre), dtype=torch.float32)
+    protrude_radii = torch.tensor(
+        np.count_nonzero(nuc_outline, axis=(1, 2)) // 30, dtype=torch.long
+    )
+    retract_radii = torch.tensor(
+        np.count_nonzero(nuc_inner_outline, axis=(1, 2)) // 6, dtype=torch.long
+    )
 
     # Prefer the available accelerator, falling back to CPU.
     if torch.cuda.is_available():
@@ -254,6 +255,8 @@ def fit_model(data_path: str, epochs: int = 20):
 
     # Move tensors to device
     dyn_f_pre = dyn_f_pre.to(device)
+    protrude_radii = protrude_radii.to(device)
+    retract_radii = retract_radii.to(device)
     nuc_outline_mask = torch.tensor(nuc_outline, dtype=torch.float32).to(device)
     nuc_inner_outline_mask = torch.tensor(nuc_inner_outline, dtype=torch.float32).to(
         device
@@ -263,7 +266,7 @@ def fit_model(data_path: str, epochs: int = 20):
 
     # Initialize model and move to device
     model = DynFieldModel().to(device)
-    optimizer = optim.Adam([model.dyn_sigma, model.scale_factor], lr=0.01)
+    optimizer = optim.Adam([model.scale_factor], lr=0.01)
 
     print(f"Training for {epochs} epochs...")
 
@@ -272,13 +275,13 @@ def fit_model(data_path: str, epochs: int = 20):
     for _ in range(epochs):
         optimizer.zero_grad()
 
-        pred_protr = model(dyn_f_pre, "protrude")
+        pred_protr = model(dyn_f_pre, protrude_radii, "protrude")
         mask_bool_protr = nuc_outline_mask.bool()
         pred_protr_masked = pred_protr[mask_bool_protr]
         target_protr_masked = dyn_f_old_protr[mask_bool_protr]
         loss_protr = F.mse_loss(pred_protr_masked, target_protr_masked)
 
-        pred_retr = model(dyn_f_pre, "retract")
+        pred_retr = model(dyn_f_pre, retract_radii, "retract")
         mask_bool_retr = nuc_inner_outline_mask.bool()
         pred_retr_masked = pred_retr[mask_bool_retr]
         target_retr_masked = dyn_f_old_retr[mask_bool_retr]
@@ -291,7 +294,6 @@ def fit_model(data_path: str, epochs: int = 20):
 
         pbar.set_postfix(
             {
-                "σ": f"{model.dyn_sigma.item():.3f}",
                 "s": f"{model.scale_factor.item():.3f}",
                 "loss": f"{total_loss.item():.4f}",
             }
@@ -300,7 +302,6 @@ def fit_model(data_path: str, epochs: int = 20):
     pbar.close()
 
     print("Training complete!")
-    print(f"Final dyn_sigma: {model.dyn_sigma.item()}")
     print(f"Final scale_factor: {model.scale_factor.item()}")
 
     # Plot loss curve

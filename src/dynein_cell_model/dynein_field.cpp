@@ -6,31 +6,21 @@
 
 namespace dynein_cell_model {
 namespace {
-void gaussianBlur(ViewD &field, int r0, int r1, int c0, int c1, double sigma) {
-  if (sigma <= 0 || r0 > r1 || c0 > c1)
+void boxBlur(ViewD &field, int r0, int r1, int c0, int c1, int radius) {
+  if (radius <= 0 || r0 > r1 || c0 > c1)
     return;
-  const int radius = std::max(1, static_cast<int>(std::ceil(3 * sigma)));
   const int rows = r1 - r0 + 1;
   const int cols = c1 - c0 + 1;
-
-  std::vector<double> kernel(radius + 1);
-  const double denominator = 2 * sigma * sigma;
-  for (int d = 0; d <= radius; ++d)
-    kernel[d] = std::exp(-double(d * d) / denominator);
 
   ViewD horizontal(rows, cols);
   for (int r = r0; r <= r1; ++r) {
     for (int c = c0; c <= c1; ++c) {
       const int cBegin = std::max(c0, c - radius);
       const int cEnd = std::min(c1, c + radius);
-      double weighted = 0;
-      double norm = 0;
-      for (int cc = cBegin; cc <= cEnd; ++cc) {
-        const double w = kernel[std::abs(c - cc)];
-        weighted += w * field(r, cc);
-        norm += w;
-      }
-      horizontal(r - r0, c - c0) = norm == 0 ? 0 : weighted / norm;
+      double sum = 0;
+      for (int cc = cBegin; cc <= cEnd; ++cc)
+        sum += field(r, cc);
+      horizontal(r - r0, c - c0) = sum / (cEnd - cBegin + 1);
     }
   }
 
@@ -38,22 +28,21 @@ void gaussianBlur(ViewD &field, int r0, int r1, int c0, int c1, double sigma) {
     for (int c = c0; c <= c1; ++c) {
       const int rBegin = std::max(r0, r - radius);
       const int rEnd = std::min(r1, r + radius);
-      double weighted = 0;
-      double norm = 0;
-      for (int rr = rBegin; rr <= rEnd; ++rr) {
-        const double w = kernel[std::abs(r - rr)];
-        weighted += w * horizontal(rr - r0, c - c0);
-        norm += w;
-      }
-      field(r, c) = norm == 0 ? 0 : weighted / norm;
+      double sum = 0;
+      for (int rr = rBegin; rr <= rEnd; ++rr)
+        sum += horizontal(rr - r0, c - c0);
+      field(r, c) = sum / (rEnd - rBegin + 1);
     }
   }
 }
 } // namespace
 
 // Kept implementation-private: it is an orchestration detail of step().
-void updateDynNucField(CellState &state) {
+void updateDynNucField(CellState &state, bool retract) {
   const auto &config = state.config;
+  const int patchRadius = static_cast<int>(
+      (retract ? state.innerOutlineNuc.size() : state.outlineNuc.size()) /
+      (retract ? 6 : 30));
   // Nucleus protrusion samples dynF on outlineNuc, which is one pixel outside
   // the current nucleus bounds.  Build the field on that halo as well, so a
   // force is available for every candidate rather than only for candidates
@@ -63,15 +52,13 @@ void updateDynNucField(CellState &state) {
   const int candidateMinC = std::max(0, state.nucMinC - 1);
   const int candidateMaxC = std::min(config.simCols - 1, state.nucMaxC + 1);
 
-  // A one-pixel candidate halo is enough for morphology, but not for a
-  // Gaussian with this radius.  Extend the blur workspace by its full support
-  // so that rectangular workspace edges cannot shape the force at candidates.
-  const int blurRadius =
-      std::max(1, static_cast<int>(std::ceil(3 * config.dynSigma)));
-  const int blurMinR = std::max(0, candidateMinR - blurRadius);
-  const int blurMaxR = std::min(config.simRows - 1, candidateMaxR + blurRadius);
-  const int blurMinC = std::max(0, candidateMinC - blurRadius);
-  const int blurMaxC = std::min(config.simCols - 1, candidateMaxC + blurRadius);
+  // Include the entire old-model square footprint around every candidate.
+  const int blurMinR = std::max(0, candidateMinR - patchRadius);
+  const int blurMaxR =
+      std::min(config.simRows - 1, candidateMaxR + patchRadius);
+  const int blurMinC = std::max(0, candidateMinC - patchRadius);
+  const int blurMaxC =
+      std::min(config.simCols - 1, candidateMaxC + patchRadius);
 
   state.dynF.setZero();
   ViewI parent = ViewI::Constant(config.simRows, config.simCols, -1);
@@ -115,8 +102,7 @@ void updateDynNucField(CellState &state) {
       state.dynF(r, c) =
           scaling(r, c) ? state.dynF(r, c) / scaling(r, c) * config.dynScale
                         : 0;
-  gaussianBlur(state.dynF, blurMinR, blurMaxR, blurMinC, blurMaxC,
-               config.dynSigma);
+  boxBlur(state.dynF, blurMinR, blurMaxR, blurMinC, blurMaxC, patchRadius);
 
   for (int r = blurMinR; r <= blurMaxR; ++r)
     for (int c = blurMinC; c <= blurMaxC; ++c)

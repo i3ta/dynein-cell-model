@@ -6,7 +6,7 @@
 
 namespace dynein_cell_model {
 
-void updateDynNucField(CellState &state);
+void updateDynNucField(CellState &state, bool retract);
 
 void step(CellState &state) {
   auto &conf = state.config;
@@ -16,11 +16,8 @@ void step(CellState &state) {
   if (state.t % conf.frT == 0)
     updateFrame(state);
 
-  // Use a field derived from the current nucleus for protrusion, then refresh
-  // it after the boundary changes so retraction does not use stale geometry.
-  updateDynNucField(state);
+  updateDynNucField(state, true);
   protrudeNuc(state);
-  updateDynNucField(state);
   retractNuc(state);
 
   protrudeCell(state);
@@ -48,12 +45,18 @@ void simulate(CellState &state, double duration) {
 
 [[deprecated]] void stepDep(CellState &state) {
   auto &conf = state.config;
-  if (state.t % conf.adhT == 0) rearrangeAdhesions(state);
-  if (state.t % conf.frT == 0) updateFrame(state);
-  protrudeNucDep(state); retractNucDep(state);
-  protrudeCell(state); retractCell(state);
-  correctConcentrations(state); diffuseK0Adh(state);
-  if (++state.t % conf.saveT == 0 && state.output) saveState(state);
+  if (state.t % conf.adhT == 0)
+    rearrangeAdhesions(state);
+  if (state.t % conf.frT == 0)
+    updateFrame(state);
+  protrudeNucDep(state);
+  retractNucDep(state);
+  protrudeCell(state);
+  retractCell(state);
+  correctConcentrations(state);
+  diffuseK0Adh(state);
+  if (++state.t % conf.saveT == 0 && state.output)
+    saveState(state);
 }
 
 [[deprecated]] void step_dep(CellState &state) { stepDep(state); }
