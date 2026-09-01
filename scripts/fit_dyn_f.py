@@ -176,6 +176,9 @@ class DynFieldModel(nn.Module):
             padding=self.kernel_size // 2,
         ).squeeze(1)
         dyn_f = dyn_f * self.scale_factor
+        # Match updateDynNucField: the final, smoothed force is bounded before
+        # it is used for either protrusion or the 1 - dyn_f retraction rule.
+        dyn_f = torch.clamp(dyn_f, 0.0, 1.0)
 
         if mode == "retract":
             dyn_f = 1.0 - dyn_f
