@@ -27,7 +27,7 @@ CellModelConfig::CellModelConfig() {
   RNuc = 1;
   dynBasal = 0.9;
   propFactor = 1;
-  dynSigma = 8.56;
+  dynSigma = 1.0;
   dynScale = 0.683;
   DA = 0.0003333333;
   DI = 0.0333333333;
@@ -55,7 +55,7 @@ CellModelConfig::CellModelConfig() {
   RNuc = 1;
   R0 = 20;
   dynBasal = 0.9;
-  dynSigma = 8.56;
+  dynSigma = 1.0;
   dynScale = 0.683;
   s1 = 0.7;
   s2 = 0.2;

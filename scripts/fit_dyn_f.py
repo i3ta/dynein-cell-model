@@ -1,3 +1,4 @@
+import math
 import sys
 from collections import deque
 
@@ -158,11 +159,13 @@ class DynFieldModel(nn.Module):
     def __init__(self):
         super().__init__()
 
+        # Multiplies the Gaussian width derived from the deprecated model's
+        # perimeter-based square-patch variance.
+        self.dyn_sigma = nn.Parameter(torch.tensor(1.0))
         self.scale_factor = nn.Parameter(torch.tensor(0.55))
 
-    @staticmethod
-    def _box_blur(dyn_f_raw, radii):
-        """Apply the deprecated model's per-frame square-patch footprint."""
+    def _gaussian_blur(self, dyn_f_raw, radii):
+        """Apply a Gaussian with the old square footprint's equivalent width."""
         result = torch.empty_like(dyn_f_raw)
         for radius in torch.unique(radii).tolist():
             indices = torch.nonzero(radii == radius, as_tuple=True)[0]
@@ -170,12 +173,17 @@ class DynFieldModel(nn.Module):
             if radius == 0:
                 blurred = values
             else:
-                # Candidate pixels are at least ``radius`` pixels inside the
-                # C++ workspace.  Average pooling therefore reproduces the
-                # normalized separable box filter at all fitted pixels.
-                blurred = F.avg_pool2d(
-                    values, kernel_size=2 * radius + 1, stride=1, padding=radius
+                base_sigma = math.sqrt(radius * (radius + 1) / 3.0)
+                sigma = torch.abs(self.dyn_sigma) * base_sigma
+                kernel_radius = max(1, math.ceil(3 * sigma.detach().item()))
+                axis = (
+                    torch.arange(kernel_radius * 2 + 1, device=values.device)
+                    - kernel_radius
                 )
+                xx, yy = torch.meshgrid(axis, axis, indexing="ij")
+                kernel = torch.exp(-(xx**2 + yy**2) / (2 * sigma**2))
+                kernel = (kernel / kernel.sum()).unsqueeze(0).unsqueeze(0)
+                blurred = F.conv2d(values, kernel, padding=kernel_radius)
             result.index_copy_(0, indices, blurred.squeeze(1))
         return result
 
@@ -186,9 +194,10 @@ class DynFieldModel(nn.Module):
             radii: (batch,) - old-model square-patch half-width for each frame
             mode: 'protrude' or 'retract'
         Returns:
-            pred: (batch, rows, cols) - normalized and spread dyn_f values
+            pred: (batch, rows, cols) - normalized and Gaussian-spread dyn_f
+                values
         """
-        dyn_f = self._box_blur(dyn_f_raw, radii)
+        dyn_f = self._gaussian_blur(dyn_f_raw, radii)
         dyn_f = dyn_f * self.scale_factor
         # Match updateDynNucField: the final, smoothed force is bounded before
         # it is used for either protrusion or the 1 - dyn_f retraction rule.
@@ -266,7 +275,7 @@ def fit_model(data_path: str, epochs: int = 20):
 
     # Initialize model and move to device
     model = DynFieldModel().to(device)
-    optimizer = optim.Adam([model.scale_factor], lr=0.01)
+    optimizer = optim.Adam([model.dyn_sigma, model.scale_factor], lr=0.01)
 
     print(f"Training for {epochs} epochs...")
 
@@ -294,6 +303,7 @@ def fit_model(data_path: str, epochs: int = 20):
 
         pbar.set_postfix(
             {
+                "σ multiplier": f"{abs(model.dyn_sigma.item()):.3f}",
                 "s": f"{model.scale_factor.item():.3f}",
                 "loss": f"{total_loss.item():.4f}",
             }
@@ -302,6 +312,7 @@ def fit_model(data_path: str, epochs: int = 20):
     pbar.close()
 
     print("Training complete!")
+    print(f"Final dyn_sigma multiplier: {abs(model.dyn_sigma.item())}")
     print(f"Final scale_factor: {model.scale_factor.item()}")
 
     # Plot loss curve

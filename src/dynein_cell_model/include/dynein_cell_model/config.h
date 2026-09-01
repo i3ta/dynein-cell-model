@@ -51,7 +51,7 @@ public:
   double dynBasal; ///< basal weight for protrusion probability of dynein factor
   double propFactor; ///< number in range [0, 1] to multiply protrusions and
                      ///< retraction weights to study effect of scaling
-  double dynSigma;   ///< sigma value for gaussian smoothing of dynein force
+  double dynSigma;   ///< multiplier for perimeter-derived dynein Gaussian width
   double dynScale;   ///< factor to scale dynF values by
 
   // Reaction-diffusion parameters
