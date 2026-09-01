@@ -457,33 +457,6 @@ void protrudeNuc(CellState &state) {
   const double nDiag = 1.0 / std::pow(M_SQRT2, config.g);
   const double C = 4.0 * (1.0 + nDiag);
 
-  // perform vectorized calculations over entire block
-  const int rStart = state.nucMinR - 1, cStart = state.nucMinC - 1;
-  const int rows = state.nucMaxR - state.nucMinR + 3;
-  const int cols = state.nucMaxC - state.nucMinC + 3;
-
-  // nMatrix holds the 'n' value for every pixel in the nucleus vicinity
-  Eigen::MatrixXd nMatrix = Eigen::MatrixXd::Zero(rows, cols);
-  auto nAcc = nMatrix.array();
-
-  nAcc += nDiag * (state.nuc.block(rStart - 1, cStart - 1, rows, cols)
-                       .array()
-                       .cast<double>() +
-                   state.nuc.block(rStart + 1, cStart - 1, rows, cols)
-                       .array()
-                       .cast<double>() +
-                   state.nuc.block(rStart + 1, cStart + 1, rows, cols)
-                       .array()
-                       .cast<double>() +
-                   state.nuc.block(rStart - 1, cStart + 1, rows, cols)
-                       .array()
-                       .cast<double>());
-  nAcc +=
-      (state.nuc.block(rStart - 1, cStart, rows, cols).array().cast<double>() +
-       state.nuc.block(rStart, cStart - 1, rows, cols).array().cast<double>() +
-       state.nuc.block(rStart + 1, cStart, rows, cols).array().cast<double>() +
-       state.nuc.block(rStart, cStart + 1, rows, cols).array().cast<double>());
-
   // protrude logic
   std::vector<std::pair<int, int>> protrudeCoords =
       state.outlineNuc.shuffled(state.rng);
@@ -493,9 +466,13 @@ void protrudeNuc(CellState &state) {
     if (state.outline.contains(r, c) || !protrudeConf[conf])
       continue;
 
-    // lookup pre-calculated 'n'
-    // NOTE: cells may change but n is still from initial state
-    double n = nMatrix(r - rStart, c - cStart);
+    // Read the current mask so earlier accepted candidates influence local
+    // geometry support within the same sweep, as in the legacy mechanism.
+    const double n =
+        nDiag * (state.nuc(r - 1, c - 1) + state.nuc(r + 1, c - 1) +
+                 state.nuc(r + 1, c + 1) + state.nuc(r - 1, c + 1)) +
+        state.nuc(r - 1, c) + state.nuc(r, c - 1) + state.nuc(r + 1, c) +
+        state.nuc(r, c + 1);
 
     const double w =
         std::pow(n / C, config.kNuc) * rCor * vCor *
@@ -541,34 +518,6 @@ void retractNuc(CellState &state) {
   const double nDiag = 1.0 / std::pow(M_SQRT2, config.g);
   const double C = 4.0 * (1.0 + nDiag);
 
-  // perform vectorized calculations over entire block
-  const int rStart = state.nucMinR - 1;
-  const int cStart = state.nucMinC - 1;
-  const int rows = state.nucMaxR - state.nucMinR + 3;
-  const int cols = state.nucMaxC - state.nucMinC + 3;
-
-  // nMatrix holds the 'n' value for every pixel in the nucleus vicinity
-  Eigen::MatrixXd invNuc =
-      1.0 - state.nuc.block(rStart - 1, cStart - 1, rows + 2, cols + 2)
-                .array()
-                .cast<double>();
-
-  Eigen::MatrixXd nMatrix = Eigen::MatrixXd::Zero(rows, cols);
-  auto nAcc = nMatrix.array();
-
-  // Diagonal neighbors (using the pre-inverted block)
-  nAcc += nDiag * (invNuc.block(0, 0, rows, cols).array() + // top-left
-                   invNuc.block(2, 0, rows, cols).array() + // bottom-left
-                   invNuc.block(0, 2, rows, cols).array() + // top-right
-                   invNuc.block(2, 2, rows, cols).array()   // bottom-right
-                  );
-  // Orthogonal neighbors
-  nAcc += (invNuc.block(0, 1, rows, cols).array() + // top
-           invNuc.block(1, 0, rows, cols).array() + // left
-           invNuc.block(2, 1, rows, cols).array() + // bottom
-           invNuc.block(1, 2, rows, cols).array()   // right
-  );
-
   // retract logic
   std::vector<std::pair<int, int>> retractCoords =
       state.innerOutlineNuc.shuffled(state.rng);
@@ -579,9 +528,11 @@ void retractNuc(CellState &state) {
     if (!retractConf[conf])
       continue;
 
-    // lookup pre-calculated 'n'
-    // NOTE: cells may change but n is still from initial state
-    double n = nMatrix(r - rStart, c - cStart);
+    const double n =
+        nDiag * (!state.nuc(r - 1, c - 1) + !state.nuc(r + 1, c - 1) +
+                 !state.nuc(r + 1, c + 1) + !state.nuc(r - 1, c + 1)) +
+        !state.nuc(r - 1, c) + !state.nuc(r, c - 1) + !state.nuc(r + 1, c) +
+        !state.nuc(r, c + 1);
 
     const double w = std::pow(n / C, config.kNuc) * rCor * vCor *
                      (config.dynBasal +
