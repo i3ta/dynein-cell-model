@@ -165,7 +165,14 @@ class DynFieldModel(nn.Module):
         self.scale_factor = nn.Parameter(torch.tensor(0.55))
 
     def _gaussian_blur(self, dyn_f_raw, radii):
-        """Apply a Gaussian with the old square footprint's equivalent width."""
+        """Apply a Gaussian with the old square footprint's equivalent width.
+
+        The C++ implementation is separable (one horizontal and one vertical
+        pass).  Keeping it separable here produces the same Gaussian while
+        avoiding a very expensive full 2-D convolution.  The latter can make
+        the MPS command buffer on Apple GPUs exceed its interactivity budget
+        for the large full-frame tensors used by the fitting data.
+        """
         result = torch.empty_like(dyn_f_raw)
         for radius in torch.unique(radii).tolist():
             indices = torch.nonzero(radii == radius, as_tuple=True)[0]
@@ -180,10 +187,20 @@ class DynFieldModel(nn.Module):
                     torch.arange(kernel_radius * 2 + 1, device=values.device)
                     - kernel_radius
                 )
-                xx, yy = torch.meshgrid(axis, axis, indexing="ij")
-                kernel = torch.exp(-(xx**2 + yy**2) / (2 * sigma**2))
-                kernel = (kernel / kernel.sum()).unsqueeze(0).unsqueeze(0)
-                blurred = F.conv2d(values, kernel, padding=kernel_radius)
+                kernel_1d = torch.exp(-(axis**2) / (2 * sigma**2))
+                # Keep this out-of-place: ExpBackward saves kernel_1d and
+                # CUDA autograd rejects an in-place normalization here.
+                kernel_1d = kernel_1d / kernel_1d.sum()
+                horizontal = F.conv2d(
+                    values,
+                    kernel_1d.reshape(1, 1, 1, -1),
+                    padding=(0, kernel_radius),
+                )
+                blurred = F.conv2d(
+                    horizontal,
+                    kernel_1d.reshape(1, 1, -1, 1),
+                    padding=(kernel_radius, 0),
+                )
             result.index_copy_(0, indices, blurred.squeeze(1))
         return result
 
@@ -197,7 +214,19 @@ class DynFieldModel(nn.Module):
             pred: (batch, rows, cols) - normalized and Gaussian-spread dyn_f
                 values
         """
-        dyn_f = self._gaussian_blur(dyn_f_raw, radii)
+        # MPS is prone to command-buffer watchdog failures when a large stack
+        # of full-frame convolutions is encoded in one operation.  Small
+        # batches keep each buffer bounded without changing the fitted model.
+        batch_size = 4 if dyn_f_raw.device.type == "mps" else dyn_f_raw.shape[0]
+        blurred_batches = []
+        for start in range(0, dyn_f_raw.shape[0], batch_size):
+            stop = min(start + batch_size, dyn_f_raw.shape[0])
+            blurred_batches.append(
+                self._gaussian_blur(dyn_f_raw[start:stop], radii[start:stop])
+            )
+            if dyn_f_raw.device.type == "mps":
+                torch.mps.synchronize()
+        dyn_f = torch.cat(blurred_batches, dim=0)
         dyn_f = dyn_f * self.scale_factor
         # Match updateDynNucField: the final, smoothed force is bounded before
         # it is used for either protrusion or the 1 - dyn_f retraction rule.
