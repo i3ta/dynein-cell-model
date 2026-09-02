@@ -12,8 +12,8 @@ R0: 20
 R_nuc: 1
 dyn_basal: 0.9
 prop_factor: 1
-dyn_sigma: 1.0
-dyn_scale: 1.3113292455673218
+dyn_sigma: 0.9873168468475342
+dyn_scale: 1.0543102025985718
 DA: 0.0003333333
 DI: 0.0333333333
 k0: 0.10
