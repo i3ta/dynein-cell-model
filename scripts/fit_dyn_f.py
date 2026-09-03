@@ -187,9 +187,10 @@ class DynFieldModel(nn.Module):
                     - kernel_radius
                 )
                 kernel_1d = torch.exp(-(axis**2) / (2 * sigma**2))
+                line_correction = kernel_1d.sum()
                 # Keep this out-of-place: ExpBackward saves kernel_1d and
                 # CUDA autograd rejects an in-place normalization here.
-                kernel_1d = kernel_1d / kernel_1d.sum()
+                kernel_1d = kernel_1d / line_correction
                 horizontal = F.conv2d(
                     values,
                     kernel_1d.reshape(1, 1, 1, -1),
@@ -200,6 +201,10 @@ class DynFieldModel(nn.Module):
                     kernel_1d.reshape(1, 1, -1, 1),
                     padding=(kernel_radius, 0),
                 )
+                # A full 2-D normalization would divide a force that lives
+                # only on a thin nucleus boundary by an additional 1-D sum.
+                # Restore that factor to match the C++ straight-edge model.
+                blurred = blurred * line_correction
             result.index_copy_(0, indices, blurred.squeeze(1))
         return result
 

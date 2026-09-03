@@ -19,15 +19,14 @@ void gaussianBlurNucCandidates(CellState &state,
   for (int d = 0; d <= radius; ++d)
     kernel[d] = std::exp(-double(d * d) / denominator);
 
-  // The blur workspace has a complete 3-sigma halo around every candidate,
-  // so its normalization is the full separable kernel sum.  The raw field is
-  // non-zero only on innerOutlineNuc; calculate exactly the values that the
-  // next protrusion/retraction step reads rather than convolving its empty
-  // rectangular halo.
+  // dynF has samples only along the one-pixel-wide nuclear boundary.  Divide
+  // by the 1-D kernel sum, rather than its square, to approximate a Gaussian
+  // average along a locally straight boundary without diluting the signal
+  // into the unsampled 2-D interior/background.
   const double kernelSum = kernel[0] +
                            2 * std::accumulate(kernel.begin() + 1,
                                                kernel.end(), 0.0);
-  const double normalization = kernelSum * kernelSum;
+  const double normalization = kernelSum;
   std::vector<double> sourceValues;
   sourceValues.reserve(state.innerOutlineNuc.size());
   for (const auto &[r, c] : state.innerOutlineNuc)
