@@ -72,8 +72,10 @@ void updateDynNucField(CellState &state, bool retract) {
   const int dr[] = {1, -1, 0, 0}, dc[] = {0, 0, 1, -1};
   for (size_t head = 0; head < order.size(); ++head) {
     const auto [r, c] = order[head];
-    if (state.innerOutline.contains(r, c)) {
-      state.dynF(r, c) = distance[head] * std::max(state.AC(r, c) - 0.1, 0.0);
+    // Preserve the deprecated field's threshold behavior: low-AC cell
+    // boundary pixels do not contribute force or a scaling count.
+    if (state.innerOutline.contains(r, c) && state.AC(r, c) > 0.1) {
+      state.dynF(r, c) = distance[head] * (state.AC(r, c) - 0.1);
       scaling(r, c) = 1;
     }
     for (int n = 0; n < 4; ++n) {

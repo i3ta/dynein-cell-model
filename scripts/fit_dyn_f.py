@@ -134,12 +134,11 @@ def preprocess_bfs(
                 backtrack[(nr, nc)] = (r, c)
                 dist[nr, nc] = dist[r, c] + 1.0
                 queue.append((nr, nc))
-        # Match updateDynNucField: every cell-boundary pixel participates in
-        # the average, including those whose AC is at or below the threshold.
-        # Those pixels contribute zero force but still contribute one count to
-        # the denominator when values are propagated back to the nucleus.
-        if cell_inner_outline[r, c]:
-            dyn_f[r, c] = max(AC[r, c] - 0.1, 0.0) * dist[r, c]
+        # Match the deprecated and current C++ threshold behavior: only
+        # boundary pixels above the AC threshold contribute to the numerator
+        # and denominator of the propagated average.
+        if cell_inner_outline[r, c] and AC[r, c] > 0.1:
+            dyn_f[r, c] = (AC[r, c] - 0.1) * dist[r, c]
             scaling[r, c] = 1
 
     for r, c in reversed(rev):

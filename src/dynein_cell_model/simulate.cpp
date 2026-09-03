@@ -16,8 +16,11 @@ void step(CellState &state) {
   if (state.t % conf.frT == 0)
     updateFrame(state);
 
-  updateDynNucField(state, true);
+  // Protrusion and retraction use different candidate outlines and Gaussian
+  // widths, so each phase needs its own field as in the deprecated path.
+  updateDynNucField(state, false);
   protrudeNuc(state);
+  updateDynNucField(state, true);
   retractNuc(state);
 
   protrudeCell(state);
