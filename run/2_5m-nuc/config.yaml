@@ -12,8 +12,8 @@ R0: 20
 R_nuc: 1
 dyn_basal: 0.9
 prop_factor: 1
-dyn_sigma: 1.0
-dyn_scale: 0.5902834534645081
+dyn_sigma: 1.417
+dyn_scale: 1.609
 DA: 0.0003333333
 DI: 0.0333333333
 k0: 0.10
@@ -37,7 +37,7 @@ AC_min: 0.044
 sim_rows: 1500
 sim_cols: 600
 seed: 0
-num_iters: 100000
+num_iters: 500000
 frame_padding: 20
 diff_t: 100
 save_t: 1000
